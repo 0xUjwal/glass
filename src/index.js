@@ -119,11 +119,22 @@ function setupProtocolHandling() {
 }
 
 function focusMainWindow() {
-    const { windowPool } = require('./window/windowManager.js');
+    const { windowPool, restoreWindowFocus } = require('./window/windowManager.js');
+    
+    // Try the enhanced focus restoration first
+    if (restoreWindowFocus()) {
+        return true;
+    }
+    
+    // Fallback to original logic
     if (windowPool) {
         const header = windowPool.get('header');
         if (header && !header.isDestroyed()) {
             if (header.isMinimized()) header.restore();
+            // Force bring to front for fullscreen scenarios
+            if (header.isAlwaysOnTop()) {
+                header.moveTop();
+            }
             header.focus();
             return true;
         }
@@ -311,7 +322,20 @@ app.on('before-quit', async (event) => {
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindows();
+    } else {
+        // App was activated (e.g., clicked on dock icon, switched from fullscreen app)
+        // Ensure main window gets focus
+        focusMainWindow();
     }
+});
+
+// Handle app becoming active (useful for fullscreen transitions)
+app.on('browser-window-focus', (event, window) => {
+    console.log('[Focus] Browser window focused:', window?.getTitle() || 'Unknown');
+});
+
+app.on('browser-window-blur', (event, window) => {
+    console.log('[Focus] Browser window blurred:', window?.getTitle() || 'Unknown');
 });
 
 function setupWebDataHandlers() {

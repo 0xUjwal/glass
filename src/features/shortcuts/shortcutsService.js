@@ -72,6 +72,7 @@ class ShortcutsService {
             scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
             scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
             clearAskChat: isMac ? 'Cmd+Shift+D' : 'Ctrl+Shift+D',
+            restoreFocus: isMac ? 'Cmd+Shift+F' : 'Ctrl+Shift+F',
         };
     }
 
@@ -270,6 +271,16 @@ class ShortcutsService {
                         if (askWindow && !askWindow.isDestroyed() && askWindow.isVisible()) {
                             // Send the clear command without changing focus
                             askWindow.webContents.send('clear-ask-chat');
+                        }
+                    };
+                    break;
+                case 'restoreFocus':
+                    callback = () => {
+                        console.log('[ShortcutsService] Manual focus restoration triggered via shortcut');
+                        const windowManager = require('../../window/windowManager');
+                        if (windowManager.restoreWindowFocus) {
+                            const success = windowManager.restoreWindowFocus();
+                            console.log(`[ShortcutsService] Focus restoration ${success ? 'succeeded' : 'failed'}`);
                         }
                     };
                     break;

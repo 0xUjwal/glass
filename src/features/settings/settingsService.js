@@ -180,6 +180,7 @@ const DEFAULT_KEYBINDS = {
         scrollUp: 'Cmd+Shift+Up',
         scrollDown: 'Cmd+Shift+Down',
         clearAskChat: 'Cmd+Shift+D',
+        restoreFocus: 'Cmd+Shift+F',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -195,6 +196,7 @@ const DEFAULT_KEYBINDS = {
         scrollUp: 'Ctrl+Shift+Up',
         scrollDown: 'Ctrl+Shift+Down',
         clearAskChat: 'Ctrl+Shift+D',
+        restoreFocus: 'Ctrl+Shift+F',
     }
 };
 

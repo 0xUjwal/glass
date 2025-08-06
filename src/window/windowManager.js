@@ -1,4 +1,4 @@
-const { BrowserWindow, globalShortcut, screen, app, shell } = require('electron');
+const { BrowserWindow, globalShortcut, screen, app, shell, powerMonitor } = require('electron');
 const WindowLayoutManager = require('./windowLayoutManager');
 const SmoothMovementManager = require('./smoothMovementManager');
 const path = require('node:path');
@@ -30,6 +30,7 @@ if (shouldUseLiquidGlass) {
 
 let isContentProtectionOn = true;
 let lastVisibleWindows = new Set(['header']);
+let shouldMaintainFocus = true; // Flag to control focus restoration behavior
 
 let currentHeaderState = 'apikey';
 const windowPool = new Map();
@@ -96,6 +97,43 @@ const moveHeaderTo = (newX, newY) => {
 
 const adjustWindowHeight = (winName, targetHeight) => {
     internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight });
+};
+
+const restoreWindowFocus = () => {
+    const header = windowPool.get('header');
+    if (header && !header.isDestroyed() && header.isVisible()) {
+        console.log('[WindowManager] Manual focus restoration requested');
+        try {
+            if (process.platform === 'darwin') {
+                header.setAlwaysOnTop(false);
+                header.setAlwaysOnTop(true, 'screen-saver');
+                setTimeout(() => {
+                    if (!header.isDestroyed()) {
+                        header.setAlwaysOnTop(false);
+                        header.setAlwaysOnTop(true);
+                        header.moveTop();
+                        header.focus();
+                    }
+                }, 50);
+            } else {
+                header.setAlwaysOnTop(false);
+                header.setAlwaysOnTop(true);
+                header.moveTop();
+                header.focus();
+            }
+            return true;
+        } catch (error) {
+            console.warn('[WindowManager] Error in manual focus restoration:', error);
+            try {
+                header.focus();
+                return true;
+            } catch (fallbackError) {
+                console.warn('[WindowManager] Fallback focus also failed:', fallbackError);
+                return false;
+            }
+        }
+    }
+    return false;
 };
 
 function setupWindowController(windowPool, layoutManager, movementManager) {
@@ -390,6 +428,19 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
                 win.setOpacity(0);
                 win.setBounds(startPos);
                 win.showInactive();
+                
+                // For critical windows in fullscreen scenarios, ensure they get focus
+                if (name === 'ask' || name === 'listen') {
+                    setTimeout(() => {
+                        if (!win.isDestroyed() && win.isVisible()) {
+                            const header = windowPool.get('header');
+                            if (header && !header.isDestroyed() && header.isVisible()) {
+                                // Ensure header maintains focus when showing feature windows
+                                header.focus();
+                            }
+                        }
+                    }, 50);
+                }
             }
 
             movementManager.fade(win, { to: 1 });
@@ -719,6 +770,78 @@ function createWindows() {
     setupIpcHandlers(windowPool, layoutManager);
     setupWindowController(windowPool, layoutManager, movementManager);
 
+    // Set up periodic focus check for fullscreen scenarios
+    let periodicFocusCheck = null;
+    let lastFocusRestoreAttempt = 0;
+    const startPeriodicFocusCheck = () => {
+        if (periodicFocusCheck) {
+            clearInterval(periodicFocusCheck);
+        }
+        periodicFocusCheck = setInterval(() => {
+            if (!header.isDestroyed() && header.isVisible() && header.isAlwaysOnTop()) {
+                // Check if we should have focus but don't
+                const activeWindow = BrowserWindow.getFocusedWindow();
+                if (!activeWindow || activeWindow !== header) {
+                    // Only restore focus if no other Glass windows are focused
+                    const isGlassWindowFocused = Array.from(windowPool.values()).some(win => 
+                        win && !win.isDestroyed() && win.isFocused()
+                    );
+                    
+                    if (!isGlassWindowFocused) {
+                        const now = Date.now();
+                        // Prevent too frequent focus restoration attempts
+                        if (now - lastFocusRestoreAttempt > 1000) {
+                            console.log('[WindowManager] Periodic focus restore - bringing header to front');
+                            lastFocusRestoreAttempt = now;
+                            
+                            // Enhanced focus restoration for fullscreen scenarios
+                            try {
+                                if (process.platform === 'darwin') {
+                                    // macOS specific: ensure the window is properly ordered
+                                    header.setAlwaysOnTop(false);
+                                    header.setAlwaysOnTop(true);
+                                    header.moveTop();
+                                } else if (process.platform === 'win32') {
+                                    // Windows specific: force window to front
+                                    header.moveTop();
+                                    header.setAlwaysOnTop(false);
+                                    header.setAlwaysOnTop(true);
+                                }
+                                header.focus();
+                            } catch (error) {
+                                console.warn('[WindowManager] Error in enhanced focus restoration:', error);
+                                header.focus();
+                            }
+                        }
+                    }
+                }
+            }
+        }, 1500); // Check every 1.5 seconds for more responsive focus management
+    };
+
+    const stopPeriodicFocusCheck = () => {
+        if (periodicFocusCheck) {
+            clearInterval(periodicFocusCheck);
+            periodicFocusCheck = null;
+        }
+    };
+
+    // Start periodic check when header becomes visible
+    header.on('show', () => {
+        console.log('[WindowManager] Header shown - starting periodic focus check');
+        startPeriodicFocusCheck();
+    });
+
+    header.on('hide', () => {
+        console.log('[WindowManager] Header hidden - stopping periodic focus check');
+        stopPeriodicFocusCheck();
+    });
+
+    // Clean up on app quit
+    app.on('before-quit', () => {
+        stopPeriodicFocusCheck();
+    });
+
     if (currentHeaderState === 'main') {
         createFeatureWindows(header, ['listen', 'ask', 'settings', 'shortcut-settings']);
     }
@@ -738,6 +861,203 @@ function createWindows() {
     header.on('blur', () => {
         console.log('[WindowManager] Header lost focus');
     });
+
+    // Focus restoration for fullscreen scenarios
+    let focusRestoreTimer = null;
+    let fullscreenFocusLockEnabled = false;
+    
+    const restoreFocusIfNeeded = () => {
+        if (focusRestoreTimer) {
+            clearTimeout(focusRestoreTimer);
+        }
+        focusRestoreTimer = setTimeout(() => {
+            if (!header.isDestroyed() && !header.isFocused() && header.isVisible() && shouldMaintainFocus) {
+                console.log('[WindowManager] Restoring focus after fullscreen change');
+                
+                // Enhanced focus restoration with multiple strategies
+                try {
+                    // Strategy 1: Standard moveTop + focus
+                    header.moveTop();
+                    header.focus();
+                    
+                    // Strategy 2: For persistent fullscreen apps, use alwaysOnTop cycling
+                    if (fullscreenFocusLockEnabled || header.isAlwaysOnTop()) {
+                        setTimeout(() => {
+                            if (!header.isDestroyed() && !header.isFocused()) {
+                                console.log('[WindowManager] Secondary focus restoration attempt');
+                                if (process.platform === 'darwin') {
+                                    // macOS: Use screen-saver level for better focus in fullscreen
+                                    header.setAlwaysOnTop(false);
+                                    header.setAlwaysOnTop(true, 'screen-saver');
+                                    setTimeout(() => {
+                                        if (!header.isDestroyed()) {
+                                            header.setAlwaysOnTop(false);
+                                            header.setAlwaysOnTop(true);
+                                        }
+                                    }, 100);
+                                } else {
+                                    // Windows/Linux: Toggle alwaysOnTop
+                                    header.setAlwaysOnTop(false);
+                                    header.setAlwaysOnTop(true);
+                                }
+                                header.moveTop();
+                                header.focus();
+                            }
+                        }, 200);
+                    }
+                } catch (error) {
+                    console.warn('[WindowManager] Error restoring focus:', error);
+                    // Fallback to just focus
+                    try {
+                        header.focus();
+                    } catch (fallbackError) {
+                        console.warn('[WindowManager] Fallback focus also failed:', fallbackError);
+                    }
+                }
+            }
+            focusRestoreTimer = null;
+        }, 100);
+    };
+
+    // Listen for system events that might affect focus in fullscreen
+    if (process.platform === 'darwin') {
+        // macOS specific fullscreen events
+        header.on('enter-full-screen', () => {
+            console.log('[WindowManager] Header entered fullscreen');
+            fullscreenFocusLockEnabled = true;
+            restoreFocusIfNeeded();
+        });
+        
+        header.on('leave-full-screen', () => {
+            console.log('[WindowManager] Header left fullscreen');
+            fullscreenFocusLockEnabled = false;
+            restoreFocusIfNeeded();
+        });
+        
+        // macOS workspace changes can affect focus
+        header.on('move', () => {
+            if (fullscreenFocusLockEnabled) {
+                setTimeout(() => restoreFocusIfNeeded(), 500);
+            }
+        });
+    }
+
+    // Monitor for when the app becomes active/inactive
+    app.on('browser-window-focus', (event, window) => {
+        if (window === header) {
+            console.log('[WindowManager] Header window focused via app event');
+        }
+    });
+
+    app.on('browser-window-blur', (event, window) => {
+        if (window === header) {
+            console.log('[WindowManager] Header window blurred via app event');
+            // In fullscreen mode, try to restore focus after a brief delay
+            if (header.isVisible() && header.isAlwaysOnTop()) {
+                // Detect if blur was caused by fullscreen application
+                setTimeout(() => {
+                    const activeWindow = BrowserWindow.getFocusedWindow();
+                    if (!activeWindow || !Array.from(windowPool.values()).includes(activeWindow)) {
+                        console.log('[WindowManager] Blur likely caused by fullscreen app - attempting focus restoration');
+                        restoreFocusIfNeeded();
+                    }
+                }, 500);
+            }
+        }
+    });
+
+    // System workspace/display changes that might affect focus
+    screen.on('display-metrics-changed', () => {
+        if (header.isVisible() && !header.isDestroyed()) {
+            restoreFocusIfNeeded();
+        }
+    });
+
+    // Enhanced focus management for different platforms
+    if (process.platform === 'win32') {
+        // Windows-specific focus restoration
+        const { powerMonitor } = require('electron');
+        powerMonitor.on('resume', () => {
+            console.log('[WindowManager] System resumed - restoring focus');
+            restoreFocusIfNeeded();
+        });
+        
+        powerMonitor.on('unlock-screen', () => {
+            console.log('[WindowManager] Screen unlocked - restoring focus');
+            restoreFocusIfNeeded();
+        });
+        
+        // Windows specific: Monitor for fullscreen applications
+        let fullscreenCheckInterval = null;
+        const startFullscreenMonitoring = () => {
+            if (fullscreenCheckInterval) {
+                clearInterval(fullscreenCheckInterval);
+            }
+            fullscreenCheckInterval = setInterval(() => {
+                if (!header.isDestroyed() && header.isVisible()) {
+                    const activeWindow = BrowserWindow.getFocusedWindow();
+                    const isGlassWindowActive = activeWindow && Array.from(windowPool.values()).includes(activeWindow);
+                    
+                    if (!isGlassWindowActive && header.isAlwaysOnTop()) {
+                        // Likely a fullscreen app is active
+                        console.log('[WindowManager] Detected potential fullscreen app - checking focus');
+                        setTimeout(() => {
+                            if (!header.isDestroyed() && !header.isFocused() && header.isVisible()) {
+                                console.log('[WindowManager] Restoring focus from fullscreen app interference');
+                                try {
+                                    header.setAlwaysOnTop(false);
+                                    header.setAlwaysOnTop(true);
+                                    header.moveTop();
+                                    header.focus();
+                                } catch (error) {
+                                    console.warn('[WindowManager] Error in Windows fullscreen focus restoration:', error);
+                                }
+                            }
+                        }, 100);
+                    }
+                }
+            }, 3000); // Check every 3 seconds
+        };
+        
+        header.on('show', () => {
+            startFullscreenMonitoring();
+        });
+        
+        header.on('hide', () => {
+            if (fullscreenCheckInterval) {
+                clearInterval(fullscreenCheckInterval);
+                fullscreenCheckInterval = null;
+            }
+        });
+        
+        app.on('before-quit', () => {
+            if (fullscreenCheckInterval) {
+                clearInterval(fullscreenCheckInterval);
+                fullscreenCheckInterval = null;
+            }
+        });
+        
+    } else if (process.platform === 'darwin') {
+        // macOS-specific focus restoration
+        app.on('activate', () => {
+            if (header.isVisible() && !header.isDestroyed()) {
+                console.log('[WindowManager] App activated on macOS - restoring focus');
+                restoreFocusIfNeeded();
+            }
+        });
+        
+        // macOS specific: Monitor for Mission Control and Spaces changes
+        app.on('browser-window-focus', (event, window) => {
+            if (window === header && fullscreenFocusLockEnabled) {
+                // Ensure we maintain focus in fullscreen scenarios
+                setTimeout(() => {
+                    if (!header.isDestroyed() && header.isVisible() && !header.isFocused()) {
+                        restoreFocusIfNeeded();
+                    }
+                }, 200);
+            }
+        });
+    }
 
     header.webContents.on('before-input-event', (event, input) => {
         if (input.type === 'mouseDown') {
@@ -808,4 +1128,5 @@ module.exports = {
     getHeaderPosition,
     moveHeaderTo,
     adjustWindowHeight,
+    restoreWindowFocus,
 };

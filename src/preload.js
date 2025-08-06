@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('api', {
     getHeaderPosition: () => ipcRenderer.invoke('get-header-position'),
     moveHeaderTo: (x, y) => ipcRenderer.invoke('move-header-to', x, y),
     sendHeaderAnimationFinished: (state) => ipcRenderer.send('header-animation-finished', state),
+    restoreWindowFocus: () => ipcRenderer.invoke('restore-window-focus'),
 
     // Settings Window Management
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),

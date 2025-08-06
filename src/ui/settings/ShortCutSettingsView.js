@@ -12,6 +12,7 @@ const displayNameMap = {
     scrollUp: 'Scroll Up Response',
     scrollDown: 'Scroll Down Response',
     clearAskChat: 'Clear Ask Chat',
+    restoreFocus: 'Restore Window Focus',
   };
 
 export class ShortcutSettingsView extends LitElement {
