@@ -71,6 +71,7 @@ class ShortcutsService {
             nextResponse: isMac ? 'Cmd+]' : 'Ctrl+]',
             scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
             scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
+            clearAskChat: isMac ? 'Cmd+Shift+D' : 'Ctrl+Shift+D',
         };
     }
 
@@ -262,6 +263,15 @@ class ShortcutsService {
                     break;
                 case 'nextResponse':
                     callback = () => sendToRenderer('navigate-next-response');
+                    break;
+                case 'clearAskChat':
+                    callback = () => {
+                        const askWindow = this.windowPool.get('ask');
+                        if (askWindow && !askWindow.isDestroyed() && askWindow.isVisible()) {
+                            // Send the clear command without changing focus
+                            askWindow.webContents.send('clear-ask-chat');
+                        }
+                    };
                     break;
             }
             

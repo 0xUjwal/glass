@@ -179,6 +179,7 @@ const DEFAULT_KEYBINDS = {
         nextResponse: 'Cmd+]',
         scrollUp: 'Cmd+Shift+Up',
         scrollDown: 'Cmd+Shift+Down',
+        clearAskChat: 'Cmd+Shift+D',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -193,6 +194,7 @@ const DEFAULT_KEYBINDS = {
         nextResponse: 'Ctrl+]',
         scrollUp: 'Ctrl+Shift+Up',
         scrollDown: 'Ctrl+Shift+Down',
+        clearAskChat: 'Ctrl+Shift+D',
     }
 };
 

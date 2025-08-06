@@ -786,6 +786,7 @@ export class AskView extends LitElement {
 
             window.api.askView.onScrollResponseUp(() => this.handleScroll('up'));
             window.api.askView.onScrollResponseDown(() => this.handleScroll('down'));
+            window.api.askView.onClearAskChat(() => this.clearResponseContent());
             window.api.askView.onAskStateUpdate((event, newState) => {
                 this.currentResponse = newState.currentResponse;
                 this.currentQuestion = newState.currentQuestion;
@@ -834,6 +835,7 @@ export class AskView extends LitElement {
             window.api.askView.removeOnShowTextInput(this.handleShowTextInput);
             window.api.askView.removeOnScrollResponseUp(this.handleScroll);
             window.api.askView.removeOnScrollResponseDown(this.handleScroll);
+            window.api.askView.removeOnClearAskChat(this.clearResponseContent);
             console.log('✅ AskView: IPC 이벤트 리스너 제거 필요');
         }
     }
@@ -923,6 +925,7 @@ export class AskView extends LitElement {
         this.lastProcessedLength = 0;
         this.smdParser = null;
         this.smdContainer = null;
+        this.requestUpdate();
     }
 
     handleInputFocus() {
