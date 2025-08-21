@@ -14,8 +14,7 @@ const isLiquidGlassSupported = () => {
         return false;
     }
     const majorVersion = parseInt(os.release().split('.')[0], 10);
-    // return majorVersion >= 25; // macOS 26+ (Darwin 25+)
-    return majorVersion >= 26; // See you soon!
+    return majorVersion >= 26;
 };
 let shouldUseLiquidGlass = isLiquidGlassSupported();
 if (shouldUseLiquidGlass) {
@@ -30,7 +29,8 @@ if (shouldUseLiquidGlass) {
 
 let isContentProtectionOn = true;
 let lastVisibleWindows = new Set(['header']);
-let shouldMaintainFocus = true; // Flag to control focus restoration behavior
+let shouldMaintainFocus = true;
+let aggressiveFocusMode = true;
 
 let currentHeaderState = 'apikey';
 const windowPool = new Map();
@@ -40,9 +40,23 @@ let settingsHideTimer = null;
 let layoutManager = null;
 let movementManager = null;
 
-function updateChildWindowLayouts(animated = true) {
-    // if (movementManager.isAnimating) return;
+// Platform-specific always-on-top logic function
+function applyAggressiveAlwaysOnTop(window) {
+    if (!window || window.isDestroyed()) return;
+    if (process.platform === 'win32') {
+        window.setAlwaysOnTop(true, 'screen-saver', 1);
+    } else if (process.platform === 'darwin') {
+        window.setAlwaysOnTop(true, 'screen-saver');
+    } else {
+        window.setAlwaysOnTop(true);
+    }
+}
+function removeAggressiveAlwaysOnTop(window) {
+    if (!window || window.isDestroyed()) return;
+    window.setAlwaysOnTop(false);
+}
 
+function updateChildWindowLayouts(animated = true) {
     const visibleWindows = {};
     const listenWin = windowPool.get('listen');
     const askWin = windowPool.get('ask');
@@ -52,9 +66,7 @@ function updateChildWindowLayouts(animated = true) {
     if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
         visibleWindows.ask = true;
     }
-
     if (Object.keys(visibleWindows).length === 0) return;
-
     const newLayout = layoutManager.calculateFeatureWindowLayout(visibleWindows);
     movementManager.animateLayout(newLayout, animated);
 }
@@ -62,27 +74,21 @@ function updateChildWindowLayouts(animated = true) {
 const showSettingsWindow = () => {
     internalBridge.emit('window:requestVisibility', { name: 'settings', visible: true });
 };
-
 const hideSettingsWindow = () => {
     internalBridge.emit('window:requestVisibility', { name: 'settings', visible: false });
 };
-
 const cancelHideSettingsWindow = () => {
     internalBridge.emit('window:requestVisibility', { name: 'settings', visible: true });
 };
-
 const moveWindowStep = direction => {
     internalBridge.emit('window:moveStep', { direction });
 };
-
 const resizeHeaderWindow = ({ width, height }) => {
     internalBridge.emit('window:resizeHeaderWindow', { width, height });
 };
-
 const handleHeaderAnimationFinished = state => {
     internalBridge.emit('window:headerAnimationFinished', state);
 };
-
 const getHeaderPosition = () => {
     return new Promise(resolve => {
         internalBridge.emit('window:getHeaderPosition', position => {
@@ -90,50 +96,42 @@ const getHeaderPosition = () => {
         });
     });
 };
-
 const moveHeaderTo = (newX, newY) => {
     internalBridge.emit('window:moveHeaderTo', { newX, newY });
 };
-
 const adjustWindowHeight = (winName, targetHeight) => {
     internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight });
 };
 
+// Focus logic: Only restore focus if no other app is active
 const restoreWindowFocus = () => {
     const header = windowPool.get('header');
-    if (header && !header.isDestroyed() && header.isVisible()) {
-        console.log('[WindowManager] Manual focus restoration requested');
-        try {
-            if (process.platform === 'darwin') {
-                header.setAlwaysOnTop(false);
-                header.setAlwaysOnTop(true, 'screen-saver');
-                setTimeout(() => {
-                    if (!header.isDestroyed()) {
-                        header.setAlwaysOnTop(false);
-                        header.setAlwaysOnTop(true);
-                        header.moveTop();
-                        header.focus();
-                    }
-                }, 50);
-            } else {
-                header.setAlwaysOnTop(false);
-                header.setAlwaysOnTop(true);
+    if (!header || header.isDestroyed() || !header.isVisible()) return false;
+    const activeWindow = BrowserWindow.getFocusedWindow();
+    const isOtherAppActive = activeWindow && !Array.from(windowPool.values()).includes(activeWindow);
+    if (isOtherAppActive) {
+        applyAggressiveAlwaysOnTop(header);
+        return true;
+    }
+    try {
+        applyAggressiveAlwaysOnTop(header);
+        header.moveTop();
+        header.focus();
+        setTimeout(() => {
+            if (!header.isDestroyed() && !header.isFocused()) {
                 header.moveTop();
                 header.focus();
             }
+        }, 100);
+        return true;
+    } catch (error) {
+        try {
+            header.focus();
             return true;
-        } catch (error) {
-            console.warn('[WindowManager] Error in manual focus restoration:', error);
-            try {
-                header.focus();
-                return true;
-            } catch (fallbackError) {
-                console.warn('[WindowManager] Fallback focus also failed:', fallbackError);
-                return false;
-            }
+        } catch {
+            return false;
         }
     }
-    return false;
 };
 
 function setupWindowController(windowPool, layoutManager, movementManager) {
@@ -143,8 +141,9 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
     internalBridge.on('window:requestToggleAllWindowsVisibility', ({ targetVisibility }) => {
         changeAllWindowsVisibility(windowPool, targetVisibility);
     });
+    
+    // MOVE LOGIC - Added from your original code
     internalBridge.on('window:moveToDisplay', ({ displayId }) => {
-        // movementManager.moveToDisplay(displayId);
         const header = windowPool.get('header');
         if (!header || header.isDestroyed()) return;
 
@@ -155,6 +154,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             });
         }
     });
+
     internalBridge.on('window:moveToEdge', ({ direction }) => {
         const header = windowPool.get('header');
         if (!header || header.isDestroyed()) return;
@@ -209,6 +209,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             },
         });
     });
+
     internalBridge.on('window:headerAnimationFinished', state => {
         const header = windowPool.get('header');
         if (!header || header.isDestroyed()) return;
@@ -219,6 +220,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             updateChildWindowLayouts(false);
         }
     });
+
     internalBridge.on('window:getHeaderPosition', reply => {
         const header = windowPool.get('header');
         if (header && !header.isDestroyed()) {
@@ -227,6 +229,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             reply({ x: 0, y: 0, width: 0, height: 0 });
         }
     });
+
     internalBridge.on('window:moveHeaderTo', ({ newX, newY }) => {
         const header = windowPool.get('header');
         if (!header || header.isDestroyed()) return;
@@ -236,6 +239,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             header.setPosition(newPosition.x, newPosition.y);
         }
     });
+
     internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight }) => {
         console.log(`[Layout Debug] adjustWindowHeight: targetHeight=${targetHeight}`);
         const senderWindow = windowPool.get(winName);
@@ -267,7 +271,6 @@ function changeAllWindowsVisibility(windowPool, targetVisibility) {
 
     if (header.isVisible()) {
         lastVisibleWindows.clear();
-
         windowPool.forEach((win, name) => {
             if (win && !win.isDestroyed() && win.isVisible()) {
                 lastVisibleWindows.add(name);
@@ -290,29 +293,14 @@ function changeAllWindowsVisibility(windowPool, targetVisibility) {
     });
 }
 
-/**
- *
- * @param {Map<string, BrowserWindow>} windowPool
- * @param {WindowLayoutManager} layoutManager
- * @param {SmoothMovementManager} movementManager
- * @param {'listen' | 'ask' | 'settings' | 'shortcut-settings'} name
- * @param {boolean} shouldBeVisible
- */
+// Shows/hides windows and applies always-on-top logic
 async function handleWindowVisibilityRequest(windowPool, layoutManager, movementManager, name, shouldBeVisible) {
-    console.log(`[WindowManager] Request: set '${name}' visibility to ${shouldBeVisible}`);
     const win = windowPool.get(name);
-
-    if (!win || win.isDestroyed()) {
-        console.warn(`[WindowManager] Window '${name}' not found or destroyed.`);
-        return;
-    }
+    if (!win || win.isDestroyed()) return;
 
     if (name !== 'settings') {
         const isCurrentlyVisible = win.isVisible();
-        if (isCurrentlyVisible === shouldBeVisible) {
-            console.log(`[WindowManager] Window '${name}' is already in the desired state.`);
-            return;
-        }
+        if (isCurrentlyVisible === shouldBeVisible) return;
     }
 
     const disableClicks = selectedWindow => {
@@ -331,7 +319,6 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
 
     if (name === 'settings') {
         if (shouldBeVisible) {
-            // Cancel any pending hide operations
             if (settingsHideTimer) {
                 clearTimeout(settingsHideTimer);
                 settingsHideTimer = null;
@@ -341,24 +328,17 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
                 win.setBounds(position);
                 win.__lockedByButton = true;
                 win.showInactive();
-                // Remove win.moveTop() to avoid stealing focus
-                win.setAlwaysOnTop(true);
-            } else {
-                console.warn('[WindowManager] Could not calculate settings window position.');
+                applyAggressiveAlwaysOnTop(win);
             }
         } else {
-            // Hide after a delay
-            if (settingsHideTimer) {
-                clearTimeout(settingsHideTimer);
-            }
+            if (settingsHideTimer) clearTimeout(settingsHideTimer);
             settingsHideTimer = setTimeout(() => {
                 if (win && !win.isDestroyed()) {
-                    win.setAlwaysOnTop(false);
+                    removeAggressiveAlwaysOnTop(win);
                     win.hide();
                 }
                 settingsHideTimer = null;
             }, 200);
-
             win.__lockedByButton = false;
         }
         return;
@@ -366,29 +346,16 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
 
     if (name === 'shortcut-settings') {
         if (shouldBeVisible) {
-            // layoutManager.positionShortcutSettingsWindow();
             const newBounds = layoutManager.calculateShortcutSettingsWindowPosition();
-            if (newBounds && !win.isDestroyed()) {
-                win.setBounds(newBounds);
-            }
-
+            if (newBounds && !win.isDestroyed()) win.setBounds(newBounds);
             if (!win.isDestroyed()) {
-                if (process.platform === 'darwin') {
-                    win.setAlwaysOnTop(true, 'screen-saver');
-                } else {
-                    win.setAlwaysOnTop(true);
-                }
-                // globalShortcut.unregisterAll();
+                applyAggressiveAlwaysOnTop(win);
                 disableClicks(win);
                 win.showInactive();
             }
         } else {
             if (!win.isDestroyed()) {
-                if (process.platform === 'darwin') {
-                    win.setAlwaysOnTop(false, 'screen-saver');
-                } else {
-                    win.setAlwaysOnTop(false);
-                }
+                removeAggressiveAlwaysOnTop(win);
                 restoreClicks();
                 win.hide();
             }
@@ -397,7 +364,6 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
     }
 
     if (name === 'listen' || name === 'ask') {
-        const win = windowPool.get(name);
         const otherName = name === 'listen' ? 'ask' : 'listen';
         const otherWin = windowPool.get(otherName);
         const isOtherWinVisible = otherWin && !otherWin.isDestroyed() && otherWin.isVisible();
@@ -409,14 +375,11 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             listen: (name === 'listen' && shouldBeVisible) || (otherName === 'listen' && isOtherWinVisible),
             ask: (name === 'ask' && shouldBeVisible) || (otherName === 'ask' && isOtherWinVisible),
         };
-        if (!shouldBeVisible) {
-            finalVisibility[name] = false;
-        }
+        if (!shouldBeVisible) finalVisibility[name] = false;
 
         const targetLayout = layoutManager.calculateFeatureWindowLayout(finalVisibility);
 
         if (shouldBeVisible) {
-            if (!win) return;
             const targetBounds = targetLayout[name];
             if (!targetBounds) return;
 
@@ -428,21 +391,8 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
                 win.setOpacity(0);
                 win.setBounds(startPos);
                 win.showInactive();
-                
-                // For critical windows in fullscreen scenarios, ensure they get focus
-                if (name === 'ask' || name === 'listen') {
-                    setTimeout(() => {
-                        if (!win.isDestroyed() && win.isVisible()) {
-                            const header = windowPool.get('header');
-                            if (header && !header.isDestroyed() && header.isVisible()) {
-                                // Ensure header maintains focus when showing feature windows
-                                header.focus();
-                            }
-                        }
-                    }, 50);
-                }
+                applyAggressiveAlwaysOnTop(win);
             }
-
             movementManager.fade(win, { to: 1 });
             movementManager.animateLayout(targetLayout);
         } else {
@@ -457,12 +407,11 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
                 to: 0,
                 onComplete: () => {
                     if (!win || win.isDestroyed()) return;
+                    removeAggressiveAlwaysOnTop(win);
                     win.hide();
                 },
             });
             movementManager.animateWindowPosition(win, targetPos);
-
-            // 다른 창들도 새 레이아웃으로 애니메이션
             const otherWindowsLayout = { ...targetLayout };
             delete otherWindowsLayout[name];
             movementManager.animateLayout(otherWindowsLayout);
@@ -472,32 +421,24 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
 
 const setContentProtection = status => {
     isContentProtectionOn = status;
-    console.log(`[Protection] Content protection toggled to: ${isContentProtectionOn}`);
     windowPool.forEach(win => {
         if (win && !win.isDestroyed()) {
             win.setContentProtection(isContentProtectionOn);
         }
     });
 };
-
 const getContentProtectionStatus = () => isContentProtectionOn;
-
 const toggleContentProtection = () => {
     const newStatus = !getContentProtectionStatus();
     setContentProtection(newStatus);
     return newStatus;
 };
-
 const openLoginPage = () => {
     const webUrl = process.env.pickleglass_WEB_URL || 'http://localhost:3000';
-    const personalizeUrl = `${webUrl}/personalize?desktop=true`;
-    shell.openExternal(personalizeUrl);
-    console.log('Opening personalization page:', personalizeUrl);
+    shell.openExternal(`${webUrl}/personalize?desktop=true`);
 };
 
 function createFeatureWindows(header, namesToCreate) {
-    // if (windowPool.has('listen')) return;
-
     const commonChildOptions = {
         parent: header,
         show: false,
@@ -508,173 +449,64 @@ function createFeatureWindows(header, namesToCreate) {
         skipTaskbar: true,
         hiddenInMissionControl: true,
         resizable: false,
+        movable: true, // Make feature windows movable
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, '../preload.js'),
         },
     };
-
     const createFeatureWindow = name => {
         if (windowPool.has(name)) return;
-
+        let win;
         switch (name) {
-            case 'listen': {
-                const listen = new BrowserWindow({
-                    ...commonChildOptions,
-                    width: 400,
-                    minWidth: 400,
-                    maxWidth: 900,
-                    maxHeight: 900,
-                });
-                listen.setContentProtection(isContentProtectionOn);
-                listen.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-                if (process.platform === 'darwin') {
-                    listen.setWindowButtonVisibility(false);
-                }
-                const listenLoadOptions = { query: { view: 'listen' } };
-                if (!shouldUseLiquidGlass) {
-                    listen.loadFile(path.join(__dirname, '../ui/app/content.html'), listenLoadOptions);
-                } else {
-                    listenLoadOptions.query.glass = 'true';
-                    listen.loadFile(path.join(__dirname, '../ui/app/content.html'), listenLoadOptions);
-                    listen.webContents.once('did-finish-load', () => {
-                        const viewId = liquidGlass.addView(listen.getNativeWindowHandle());
-                        if (viewId !== -1) {
-                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
-                            // liquidGlass.unstable_setScrim(viewId, 1);
-                            // liquidGlass.unstable_setSubdued(viewId, 1);
-                        }
-                    });
-                }
-                // if (!app.isPackaged) {
-                //     listen.webContents.openDevTools({ mode: 'detach' });
-                // }
-                windowPool.set('listen', listen);
+            case 'listen':
+                win = new BrowserWindow({ ...commonChildOptions, width: 400, minWidth: 400, maxWidth: 900, maxHeight: 900 });
                 break;
-            }
-
-            // ask
-            case 'ask': {
-                const ask = new BrowserWindow({ ...commonChildOptions, width: 600 });
-                ask.setContentProtection(isContentProtectionOn);
-                ask.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-                if (process.platform === 'darwin') {
-                    ask.setWindowButtonVisibility(false);
-                }
-                const askLoadOptions = { query: { view: 'ask' } };
-                if (!shouldUseLiquidGlass) {
-                    ask.loadFile(path.join(__dirname, '../ui/app/content.html'), askLoadOptions);
-                } else {
-                    askLoadOptions.query.glass = 'true';
-                    ask.loadFile(path.join(__dirname, '../ui/app/content.html'), askLoadOptions);
-                    ask.webContents.once('did-finish-load', () => {
-                        const viewId = liquidGlass.addView(ask.getNativeWindowHandle());
-                        if (viewId !== -1) {
-                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
-                            // liquidGlass.unstable_setScrim(viewId, 1);
-                            // liquidGlass.unstable_setSubdued(viewId, 1);
-                        }
-                    });
-                }
-
-                // Open DevTools in development
-                // if (!app.isPackaged) {
-                //     ask.webContents.openDevTools({ mode: 'detach' });
-                // }
-                windowPool.set('ask', ask);
+            case 'ask':
+                win = new BrowserWindow({ ...commonChildOptions, width: 600 });
                 break;
-            }
-
-            // settings
-            case 'settings': {
-                const settings = new BrowserWindow({ ...commonChildOptions, width: 240, maxHeight: 400, parent: undefined });
-                settings.setContentProtection(isContentProtectionOn);
-                settings.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-                if (process.platform === 'darwin') {
-                    settings.setWindowButtonVisibility(false);
-                }
-                const settingsLoadOptions = { query: { view: 'settings' } };
-                if (!shouldUseLiquidGlass) {
-                    settings.loadFile(path.join(__dirname, '../ui/app/content.html'), settingsLoadOptions).catch(console.error);
-                } else {
-                    settingsLoadOptions.query.glass = 'true';
-                    settings.loadFile(path.join(__dirname, '../ui/app/content.html'), settingsLoadOptions).catch(console.error);
-                    settings.webContents.once('did-finish-load', () => {
-                        const viewId = liquidGlass.addView(settings.getNativeWindowHandle());
-                        if (viewId !== -1) {
-                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
-                            // liquidGlass.unstable_setScrim(viewId, 1);
-                            // liquidGlass.unstable_setSubdued(viewId, 1);
-                        }
-                    });
-                }
-                windowPool.set('settings', settings);
-
-                // if (!app.isPackaged) {
-                //     settings.webContents.openDevTools({ mode: 'detach' });
-                // }
+            case 'settings':
+                win = new BrowserWindow({ ...commonChildOptions, width: 240, maxHeight: 400, parent: undefined });
                 break;
-            }
-
-            case 'shortcut-settings': {
-                const shortcutEditor = new BrowserWindow({
-                    ...commonChildOptions,
-                    width: 353,
-                    height: 720,
-                    modal: false,
-                    parent: undefined,
-                    alwaysOnTop: true,
-                    titleBarOverlay: false,
-                });
-
-                shortcutEditor.setContentProtection(isContentProtectionOn);
-                shortcutEditor.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-                if (process.platform === 'darwin') {
-                    shortcutEditor.setWindowButtonVisibility(false);
-                }
-
-                const loadOptions = { query: { view: 'shortcut-settings' } };
-                if (!shouldUseLiquidGlass) {
-                    shortcutEditor.loadFile(path.join(__dirname, '../ui/app/content.html'), loadOptions);
-                } else {
-                    loadOptions.query.glass = 'true';
-                    shortcutEditor.loadFile(path.join(__dirname, '../ui/app/content.html'), loadOptions);
-                    shortcutEditor.webContents.once('did-finish-load', () => {
-                        const viewId = liquidGlass.addView(shortcutEditor.getNativeWindowHandle());
-                        if (viewId !== -1) {
-                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
-                        }
-                    });
-                }
-
-                windowPool.set('shortcut-settings', shortcutEditor);
-                // if (!app.isPackaged) {
-                //     shortcutEditor.webContents.openDevTools({ mode: 'detach' });
-                // }
+            case 'shortcut-settings':
+                win = new BrowserWindow({ ...commonChildOptions, width: 353, height: 720, modal: false, parent: undefined, alwaysOnTop: true, titleBarOverlay: false });
                 break;
-            }
         }
+        if (!win) return;
+        win.setContentProtection(isContentProtectionOn);
+        win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        applyAggressiveAlwaysOnTop(win);
+        if (process.platform === 'darwin') win.setWindowButtonVisibility(false);
+        let view = name === 'shortcut-settings' ? 'shortcut-settings' : name;
+        let loadOptions = { query: { view } };
+        if (shouldUseLiquidGlass) {
+            loadOptions.query.glass = 'true';
+            win.loadFile(path.join(__dirname, '../ui/app/content.html'), loadOptions)
+                .catch(console.error);
+            win.webContents.once('did-finish-load', () => {
+                if (liquidGlass) {
+                    const viewId = liquidGlass.addView(win.getNativeWindowHandle());
+                    if (viewId !== -1) {
+                        liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
+                    }
+                }
+            });
+        } else {
+            win.loadFile(path.join(__dirname, '../ui/app/content.html'), loadOptions)
+                .catch(console.error);
+        }
+        windowPool.set(name, win);
     };
 
-    if (Array.isArray(namesToCreate)) {
-        namesToCreate.forEach(name => createFeatureWindow(name));
-    } else if (typeof namesToCreate === 'string') {
-        createFeatureWindow(namesToCreate);
-    } else {
-        createFeatureWindow('listen');
-        createFeatureWindow('ask');
-        createFeatureWindow('settings');
-        createFeatureWindow('shortcut-settings');
-    }
+    if (Array.isArray(namesToCreate)) namesToCreate.forEach(createFeatureWindow);
+    else if (typeof namesToCreate === 'string') createFeatureWindow(namesToCreate);
+    else ['listen', 'ask', 'settings', 'shortcut-settings'].forEach(createFeatureWindow);
 }
 
 function destroyFeatureWindows() {
     const featureWindows = ['listen', 'ask', 'settings', 'shortcut-settings'];
-    if (settingsHideTimer) {
-        clearTimeout(settingsHideTimer);
-        settingsHideTimer = null;
-    }
+    if (settingsHideTimer) clearTimeout(settingsHideTimer);
     featureWindows.forEach(name => {
         const win = windowPool.get(name);
         if (win && !win.isDestroyed()) win.destroy();
@@ -684,13 +516,11 @@ function destroyFeatureWindows() {
 
 function getCurrentDisplay(window) {
     if (!window || window.isDestroyed()) return screen.getPrimaryDisplay();
-
     const windowBounds = window.getBounds();
     const windowCenter = {
         x: windowBounds.x + windowBounds.width / 2,
         y: windowBounds.y + windowBounds.height / 2,
     };
-
     return screen.getDisplayNearestPoint(windowCenter);
 }
 
@@ -700,7 +530,6 @@ function createWindows() {
 
     const primaryDisplay = screen.getPrimaryDisplay();
     const { y: workAreaY, width: screenWidth } = primaryDisplay.workArea;
-
     const initialX = Math.round((screenWidth - DEFAULT_WINDOW_WIDTH) / 2);
     const initialY = workAreaY + 21;
 
@@ -717,6 +546,7 @@ function createWindows() {
         skipTaskbar: true,
         hiddenInMissionControl: true,
         resizable: false,
+        movable: true, // This is the key to allow the header window to be moved!
         focusable: true,
         acceptFirstMouse: true,
         webPreferences: {
@@ -726,39 +556,23 @@ function createWindows() {
             backgroundThrottling: false,
             webSecurity: false,
             enableRemoteModule: false,
-            // Ensure proper rendering and prevent pixelation
             experimentalFeatures: false,
         },
-        // Prevent pixelation and ensure proper rendering
         useContentSize: true,
         disableAutoHideCursor: true,
     });
-    if (process.platform === 'darwin') {
-        header.setWindowButtonVisibility(false);
-    }
-    const headerLoadOptions = {};
-    if (!shouldUseLiquidGlass) {
-        header.loadFile(path.join(__dirname, '../ui/app/header.html'), headerLoadOptions);
-    } else {
-        headerLoadOptions.query = { glass: 'true' };
-        header.loadFile(path.join(__dirname, '../ui/app/header.html'), headerLoadOptions);
-        header.webContents.once('did-finish-load', () => {
-            const viewId = liquidGlass.addView(header.getNativeWindowHandle());
-            if (viewId !== -1) {
-                liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
-                // liquidGlass.unstable_setScrim(viewId, 1);
-                // liquidGlass.unstable_setSubdued(viewId, 1);
-            }
-        });
-    }
+    applyAggressiveAlwaysOnTop(header);
+    if (process.platform === 'darwin') header.setWindowButtonVisibility(false);
+
+    const headerLoadOptions = shouldUseLiquidGlass ? { query: { glass: 'true' } } : {};
+    header.loadFile(path.join(__dirname, '../ui/app/header.html'), headerLoadOptions);
+
     windowPool.set('header', header);
     layoutManager = new WindowLayoutManager(windowPool);
     movementManager = new SmoothMovementManager(windowPool);
 
     header.on('moved', () => {
-        if (movementManager.isAnimating) {
-            return;
-        }
+        if (movementManager.isAnimating) return;
         updateChildWindowLayouts(false);
     });
 
@@ -770,306 +584,71 @@ function createWindows() {
     setupIpcHandlers(windowPool, layoutManager);
     setupWindowController(windowPool, layoutManager, movementManager);
 
-    // Set up periodic focus check for fullscreen scenarios
-    let periodicFocusCheck = null;
-    let lastFocusRestoreAttempt = 0;
-    const startPeriodicFocusCheck = () => {
-        if (periodicFocusCheck) {
-            clearInterval(periodicFocusCheck);
-        }
-        periodicFocusCheck = setInterval(() => {
-            if (!header.isDestroyed() && header.isVisible() && header.isAlwaysOnTop()) {
-                // Check if we should have focus but don't
-                const activeWindow = BrowserWindow.getFocusedWindow();
-                if (!activeWindow || activeWindow !== header) {
-                    // Only restore focus if no other Glass windows are focused
-                    const isGlassWindowFocused = Array.from(windowPool.values()).some(win => 
-                        win && !win.isDestroyed() && win.isFocused()
-                    );
-                    
-                    if (!isGlassWindowFocused) {
-                        const now = Date.now();
-                        // Prevent too frequent focus restoration attempts
-                        if (now - lastFocusRestoreAttempt > 1000) {
-                            console.log('[WindowManager] Periodic focus restore - bringing header to front');
-                            lastFocusRestoreAttempt = now;
-                            
-                            // Enhanced focus restoration for fullscreen scenarios
-                            try {
-                                if (process.platform === 'darwin') {
-                                    // macOS specific: ensure the window is properly ordered
-                                    header.setAlwaysOnTop(false);
-                                    header.setAlwaysOnTop(true);
-                                    header.moveTop();
-                                } else if (process.platform === 'win32') {
-                                    // Windows specific: force window to front
-                                    header.moveTop();
-                                    header.setAlwaysOnTop(false);
-                                    header.setAlwaysOnTop(true);
-                                }
-                                header.focus();
-                            } catch (error) {
-                                console.warn('[WindowManager] Error in enhanced focus restoration:', error);
-                                header.focus();
-                            }
-                        }
-                    }
-                }
-            }
-        }, 1500); // Check every 1.5 seconds for more responsive focus management
-    };
-
-    const stopPeriodicFocusCheck = () => {
-        if (periodicFocusCheck) {
-            clearInterval(periodicFocusCheck);
-            periodicFocusCheck = null;
-        }
-    };
-
-    // Start periodic check when header becomes visible
-    header.on('show', () => {
-        console.log('[WindowManager] Header shown - starting periodic focus check');
-        startPeriodicFocusCheck();
-    });
-
-    header.on('hide', () => {
-        console.log('[WindowManager] Header hidden - stopping periodic focus check');
-        stopPeriodicFocusCheck();
-    });
-
-    // Clean up on app quit
-    app.on('before-quit', () => {
-        stopPeriodicFocusCheck();
-    });
-
-    if (currentHeaderState === 'main') {
-        createFeatureWindows(header, ['listen', 'ask', 'settings', 'shortcut-settings']);
-    }
-
-    header.setContentProtection(isContentProtectionOn);
-    header.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-    // Open DevTools in development
-    // if (!app.isPackaged) {
-    //     header.webContents.openDevTools({ mode: 'detach' });
-    // }
-
-    header.on('focus', () => {
-        console.log('[WindowManager] Header gained focus');
-    });
-
-    header.on('blur', () => {
-        console.log('[WindowManager] Header lost focus');
-    });
-
-    // Focus restoration for fullscreen scenarios
+    // Avoid random focus stealing: only restore focus on system interference
     let focusRestoreTimer = null;
-    let fullscreenFocusLockEnabled = false;
-    
     const restoreFocusIfNeeded = () => {
-        if (focusRestoreTimer) {
-            clearTimeout(focusRestoreTimer);
-        }
+        if (focusRestoreTimer) clearTimeout(focusRestoreTimer);
         focusRestoreTimer = setTimeout(() => {
             if (!header.isDestroyed() && !header.isFocused() && header.isVisible() && shouldMaintainFocus) {
-                console.log('[WindowManager] Restoring focus after fullscreen change');
-                
-                // Enhanced focus restoration with multiple strategies
+                const activeWindow = BrowserWindow.getFocusedWindow();
+                const isOtherAppActive = activeWindow && !Array.from(windowPool.values()).includes(activeWindow);
+                if (isOtherAppActive) return;
                 try {
-                    // Strategy 1: Standard moveTop + focus
+                    applyAggressiveAlwaysOnTop(header);
                     header.moveTop();
                     header.focus();
-                    
-                    // Strategy 2: For persistent fullscreen apps, use alwaysOnTop cycling
-                    if (fullscreenFocusLockEnabled || header.isAlwaysOnTop()) {
-                        setTimeout(() => {
-                            if (!header.isDestroyed() && !header.isFocused()) {
-                                console.log('[WindowManager] Secondary focus restoration attempt');
-                                if (process.platform === 'darwin') {
-                                    // macOS: Use screen-saver level for better focus in fullscreen
-                                    header.setAlwaysOnTop(false);
-                                    header.setAlwaysOnTop(true, 'screen-saver');
-                                    setTimeout(() => {
-                                        if (!header.isDestroyed()) {
-                                            header.setAlwaysOnTop(false);
-                                            header.setAlwaysOnTop(true);
-                                        }
-                                    }, 100);
-                                } else {
-                                    // Windows/Linux: Toggle alwaysOnTop
-                                    header.setAlwaysOnTop(false);
-                                    header.setAlwaysOnTop(true);
-                                }
-                                header.moveTop();
-                                header.focus();
-                            }
-                        }, 200);
-                    }
-                } catch (error) {
-                    console.warn('[WindowManager] Error restoring focus:', error);
-                    // Fallback to just focus
-                    try {
-                        header.focus();
-                    } catch (fallbackError) {
-                        console.warn('[WindowManager] Fallback focus also failed:', fallbackError);
-                    }
-                }
+                } catch (error) {}
             }
             focusRestoreTimer = null;
         }, 100);
     };
 
-    // Listen for system events that might affect focus in fullscreen
-    if (process.platform === 'darwin') {
-        // macOS specific fullscreen events
-        header.on('enter-full-screen', () => {
-            console.log('[WindowManager] Header entered fullscreen');
-            fullscreenFocusLockEnabled = true;
-            restoreFocusIfNeeded();
-        });
-        
-        header.on('leave-full-screen', () => {
-            console.log('[WindowManager] Header left fullscreen');
-            fullscreenFocusLockEnabled = false;
-            restoreFocusIfNeeded();
-        });
-        
-        // macOS workspace changes can affect focus
-        header.on('move', () => {
-            if (fullscreenFocusLockEnabled) {
-                setTimeout(() => restoreFocusIfNeeded(), 500);
-            }
-        });
-    }
-
-    // Monitor for when the app becomes active/inactive
-    app.on('browser-window-focus', (event, window) => {
-        if (window === header) {
-            console.log('[WindowManager] Header window focused via app event');
+    header.on('focus', () => {});
+    header.on('blur', () => {
+        if (header.isVisible() && header.isAlwaysOnTop()) {
+            setTimeout(() => {
+                const activeWindow = BrowserWindow.getFocusedWindow();
+                if (!activeWindow || !Array.from(windowPool.values()).includes(activeWindow)) {
+                    restoreFocusIfNeeded();
+                }
+            }, 500);
         }
     });
 
-    app.on('browser-window-blur', (event, window) => {
-        if (window === header) {
-            console.log('[WindowManager] Header window blurred via app event');
-            // In fullscreen mode, try to restore focus after a brief delay
-            if (header.isVisible() && header.isAlwaysOnTop()) {
-                // Detect if blur was caused by fullscreen application
+    if (powerMonitor) {
+        powerMonitor.on('resume', () => {
+            setTimeout(() => {
+                if (header.isVisible() && !header.isDestroyed()) {
+                    restoreFocusIfNeeded();
+                }
+            }, 1000);
+        });
+        if (process.platform === 'win32') {
+            powerMonitor.on('unlock-screen', () => {
                 setTimeout(() => {
-                    const activeWindow = BrowserWindow.getFocusedWindow();
-                    if (!activeWindow || !Array.from(windowPool.values()).includes(activeWindow)) {
-                        console.log('[WindowManager] Blur likely caused by fullscreen app - attempting focus restoration');
+                    if (header.isVisible() && !header.isDestroyed()) {
                         restoreFocusIfNeeded();
                     }
                 }, 500);
-            }
+            });
+        }
+    }
+    app.on('activate', () => {
+        if (header.isVisible() && !header.isDestroyed()) {
+            setTimeout(() => restoreFocusIfNeeded(), 100);
         }
     });
 
-    // System workspace/display changes that might affect focus
     screen.on('display-metrics-changed', () => {
         if (header.isVisible() && !header.isDestroyed()) {
             restoreFocusIfNeeded();
         }
     });
 
-    // Enhanced focus management for different platforms
-    if (process.platform === 'win32') {
-        // Windows-specific focus restoration
-        const { powerMonitor } = require('electron');
-        powerMonitor.on('resume', () => {
-            console.log('[WindowManager] System resumed - restoring focus');
-            restoreFocusIfNeeded();
-        });
-        
-        powerMonitor.on('unlock-screen', () => {
-            console.log('[WindowManager] Screen unlocked - restoring focus');
-            restoreFocusIfNeeded();
-        });
-        
-        // Windows specific: Monitor for fullscreen applications
-        let fullscreenCheckInterval = null;
-        const startFullscreenMonitoring = () => {
-            if (fullscreenCheckInterval) {
-                clearInterval(fullscreenCheckInterval);
-            }
-            fullscreenCheckInterval = setInterval(() => {
-                if (!header.isDestroyed() && header.isVisible()) {
-                    const activeWindow = BrowserWindow.getFocusedWindow();
-                    const isGlassWindowActive = activeWindow && Array.from(windowPool.values()).includes(activeWindow);
-                    
-                    if (!isGlassWindowActive && header.isAlwaysOnTop()) {
-                        // Likely a fullscreen app is active
-                        console.log('[WindowManager] Detected potential fullscreen app - checking focus');
-                        setTimeout(() => {
-                            if (!header.isDestroyed() && !header.isFocused() && header.isVisible()) {
-                                console.log('[WindowManager] Restoring focus from fullscreen app interference');
-                                try {
-                                    header.setAlwaysOnTop(false);
-                                    header.setAlwaysOnTop(true);
-                                    header.moveTop();
-                                    header.focus();
-                                } catch (error) {
-                                    console.warn('[WindowManager] Error in Windows fullscreen focus restoration:', error);
-                                }
-                            }
-                        }, 100);
-                    }
-                }
-            }, 3000); // Check every 3 seconds
-        };
-        
-        header.on('show', () => {
-            startFullscreenMonitoring();
-        });
-        
-        header.on('hide', () => {
-            if (fullscreenCheckInterval) {
-                clearInterval(fullscreenCheckInterval);
-                fullscreenCheckInterval = null;
-            }
-        });
-        
-        app.on('before-quit', () => {
-            if (fullscreenCheckInterval) {
-                clearInterval(fullscreenCheckInterval);
-                fullscreenCheckInterval = null;
-            }
-        });
-        
-    } else if (process.platform === 'darwin') {
-        // macOS-specific focus restoration
-        app.on('activate', () => {
-            if (header.isVisible() && !header.isDestroyed()) {
-                console.log('[WindowManager] App activated on macOS - restoring focus');
-                restoreFocusIfNeeded();
-            }
-        });
-        
-        // macOS specific: Monitor for Mission Control and Spaces changes
-        app.on('browser-window-focus', (event, window) => {
-            if (window === header && fullscreenFocusLockEnabled) {
-                // Ensure we maintain focus in fullscreen scenarios
-                setTimeout(() => {
-                    if (!header.isDestroyed() && header.isVisible() && !header.isFocused()) {
-                        restoreFocusIfNeeded();
-                    }
-                }, 200);
-            }
-        });
-    }
-
-    header.webContents.on('before-input-event', (event, input) => {
-        if (input.type === 'mouseDown') {
-            const target = input.target;
-            if (target && (target.includes('input') || target.includes('apikey'))) {
-                header.focus();
-            }
-        }
-    });
-
     header.on('resize', () => updateChildWindowLayouts(false));
-
+    if (currentHeaderState === 'main') createFeatureWindows(header, ['listen', 'ask', 'settings', 'shortcut-settings']);
+    header.setContentProtection(isContentProtectionOn);
+    header.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     return windowPool;
 }
 
@@ -1077,24 +656,19 @@ function setupIpcHandlers(windowPool, layoutManager) {
     screen.on('display-added', (event, newDisplay) => {
         console.log('[Display] New display added:', newDisplay.id);
     });
-
     screen.on('display-removed', (event, oldDisplay) => {
         console.log('[Display] Display removed:', oldDisplay.id);
         const header = windowPool.get('header');
-
         if (header && getCurrentDisplay(header).id === oldDisplay.id) {
             const primaryDisplay = screen.getPrimaryDisplay();
             const newPosition = layoutManager.calculateNewPositionForDisplay(header, primaryDisplay.id);
             if (newPosition) {
-                // 복구 상황이므로 애니메이션 없이 즉시 이동
                 header.setPosition(newPosition.x, newPosition.y, false);
                 updateChildWindowLayouts(false);
             }
         }
     });
-
     screen.on('display-metrics-changed', (event, display, changedMetrics) => {
-        // 레이아웃 업데이트 함수를 새 버전으로 호출
         updateChildWindowLayouts(false);
     });
 }
@@ -1102,15 +676,19 @@ function setupIpcHandlers(windowPool, layoutManager) {
 const handleHeaderStateChanged = state => {
     console.log(`[WindowManager] Header state changed to: ${state}`);
     currentHeaderState = state;
-
     if (state === 'main') {
         createFeatureWindows(windowPool.get('header'));
     } else {
-        // 'apikey' | 'permission'
         destroyFeatureWindows();
     }
     internalBridge.emit('reregister-shortcuts');
 };
+
+const setAggressiveFocusMode = (enabled) => {
+    aggressiveFocusMode = enabled;
+    console.log(`[WindowManager] Aggressive focus mode ${enabled ? 'enabled' : 'disabled'}`);
+};
+const getAggressiveFocusMode = () => aggressiveFocusMode;
 
 module.exports = {
     createWindows,
@@ -1129,4 +707,6 @@ module.exports = {
     moveHeaderTo,
     adjustWindowHeight,
     restoreWindowFocus,
+    setAggressiveFocusMode,
+    getAggressiveFocusMode,
 };

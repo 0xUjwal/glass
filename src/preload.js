@@ -170,7 +170,13 @@ contextBridge.exposeInMainWorld('api', {
     onScrollResponseDown: (callback) => ipcRenderer.on('scroll-response-down', callback),
     removeOnScrollResponseDown: (callback) => ipcRenderer.removeListener('scroll-response-down', callback),
     onClearAskChat: (callback) => ipcRenderer.on('clear-ask-chat', callback),
-    removeOnClearAskChat: (callback) => ipcRenderer.removeListener('clear-ask-chat', callback)
+    removeOnClearAskChat: (callback) => ipcRenderer.removeListener('clear-ask-chat', callback),
+
+    // Navigation listeners
+    onNavigatePreviousResponse: (callback) => ipcRenderer.on('navigate-previous-response', callback),
+    removeOnNavigatePreviousResponse: (callback) => ipcRenderer.removeListener('navigate-previous-response', callback),
+    onNavigateNextResponse: (callback) => ipcRenderer.on('navigate-next-response', callback),
+    removeOnNavigateNextResponse: (callback) => ipcRenderer.removeListener('navigate-next-response', callback)
   },
 
   // src/ui/listen/ListenView.js

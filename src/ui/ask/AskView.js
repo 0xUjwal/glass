@@ -477,12 +477,33 @@ export class AskView extends LitElement {
 
         .line-copy-button.copied {
             background: rgba(40, 167, 69, 0.3);
+            color: #fff;
         }
 
         .line-copy-button svg {
             width: 12px;
             height: 12px;
             stroke: rgba(255, 255, 255, 0.9);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+
+        .line-copy-button .check-icon {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.5);
+        }
+
+        .line-copy-button.copied .copy-icon {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.5);
+        }
+
+        .line-copy-button.copied .check-icon {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
         }
 
         .text-input-container {
@@ -709,6 +730,41 @@ export class AskView extends LitElement {
         .header-clear-btn:hover .icon-box {
             background-color: rgba(255,255,255,0.18);
         }
+
+        .ai-response-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 6px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            transition: background 0.15s;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .ai-response-text {
+            flex: 1;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 0 8px;
+            overflow-wrap: break-word;
+        }
     `;
 
     constructor() {
@@ -721,6 +777,8 @@ export class AskView extends LitElement {
         this.headerText = 'AI Response';
         this.headerAnimating = false;
         this.isStreaming = false;
+        this.lineCopyState = {}; // For managing per-line copy states
+        this.lineCopyTimeouts = {}; // For managing per-line copy timeouts
 
         this.marked = null;
         this.hljs = null;
@@ -804,6 +862,13 @@ export class AskView extends LitElement {
                   }
                 }
               });
+
+            // Navigation event listeners for shortcuts and buttons
+            this._onNavigatePreviousResponse = () => this.navigatePreviousResponse();
+            this._onNavigateNextResponse = () => this.navigateNextResponse();
+            window.api.askView.onNavigatePreviousResponse(this._onNavigatePreviousResponse);
+            window.api.askView.onNavigateNextResponse(this._onNavigateNextResponse);
+
             console.log('AskView: IPC 이벤트 리스너 등록 완료');
         }
     }
@@ -836,6 +901,12 @@ export class AskView extends LitElement {
             window.api.askView.removeOnScrollResponseUp(this.handleScroll);
             window.api.askView.removeOnScrollResponseDown(this.handleScroll);
             window.api.askView.removeOnClearAskChat(this.clearResponseContent);
+            if (this._onNavigatePreviousResponse) {
+                window.api.askView.removeOnNavigatePreviousResponse(this._onNavigatePreviousResponse);
+            }
+            if (this._onNavigateNextResponse) {
+                window.api.askView.removeOnNavigateNextResponse(this._onNavigateNextResponse);
+            }
             console.log('✅ AskView: IPC 이벤트 리스너 제거 필요');
         }
     }
@@ -925,6 +996,10 @@ export class AskView extends LitElement {
         this.lastProcessedLength = 0;
         this.smdParser = null;
         this.smdContainer = null;
+        this.lineCopyState = {}; // Reset line copy states
+        // Clear all line copy timeouts
+        Object.values(this.lineCopyTimeouts).forEach(timeout => clearTimeout(timeout));
+        this.lineCopyTimeouts = {};
         this.requestUpdate();
     }
 
@@ -993,10 +1068,60 @@ export class AskView extends LitElement {
     }
 
 
+    /**
+     * Renders the response content as lines, each with a per-line copy button.
+     * Call this instead of renderStreamingMarkdown in renderContent().
+     */
+    renderResponseWithLineCopy(responseContainer) {
+        if (!this.currentResponse) {
+            responseContainer.innerHTML = `<div class="empty-state">...</div>`;
+            return;
+        }
+        
+        // Split response into lines
+        const lines = this.currentResponse.split('\n');
+        responseContainer.innerHTML = lines.map((line, idx) => `
+            <div class="response-line" style="position:relative;">
+                <button class="line-copy-button${this.lineCopyState && this.lineCopyState[idx] ? ' copied' : ''}" 
+                    data-idx="${idx}" 
+                    title="Copy line"
+                    tabindex="-1"
+                    style="left: -32px; top: 50%; transform: translateY(-50%); position: absolute;">
+                    <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                    <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                </button>
+                <span>${this.renderMarkdown(line || '&nbsp;')}</span>
+            </div>
+        `).join('');
+        
+        // Attach event listeners for all copy buttons
+        responseContainer.querySelectorAll('.line-copy-button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
+                this.handleLineCopy(idx);
+            });
+        });
+
+        // Apply code highlighting if available
+        if (this.hljs) {
+            responseContainer.querySelectorAll('pre code').forEach(block => {
+                if (!block.hasAttribute('data-highlighted')) {
+                    this.hljs.highlightElement(block);
+                    block.setAttribute('data-highlighted', 'true');
+                }
+            });
+        }
+    }
+
     renderContent() {
         const responseContainer = this.shadowRoot.getElementById('responseContainer');
         if (!responseContainer) return;
-    
+
         // Check loading state
         if (this.isLoading) {
             responseContainer.innerHTML = `
@@ -1016,8 +1141,8 @@ export class AskView extends LitElement {
             return;
         }
         
-        // Set streaming markdown parser
-        this.renderStreamingMarkdown(responseContainer);
+        // Use new per-line rendering with copy buttons instead of streaming markdown
+        this.renderResponseWithLineCopy(responseContainer);
 
         // After updating content, recalculate window height
         this.adjustWindowHeightThrottled();
@@ -1402,6 +1527,13 @@ export class AskView extends LitElement {
                         </span>
                     </button>
                 </div>
+
+                <!-- AI Response Navigation -->
+                <div class="ai-response-container ${!hasResponse ? 'hidden' : ''}">
+                    <button class="nav-btn prev" @click="${this.navigatePreviousResponse}" title="Previous Response">&#8592;</button>
+                    <span class="ai-response-text">${this.renderedResponse}</span>
+                    <button class="nav-btn next" @click="${this.navigateNextResponse}" title="Next Response">&#8594;</button>
+                </div>
             </div>
         `;
     }
@@ -1439,6 +1571,23 @@ export class AskView extends LitElement {
             this.adjustWindowHeight();
             this.isThrottled = false;
         });
+    }
+
+    // Navigation methods
+    navigatePreviousResponse() {
+        // Implement logic to navigate to the previous response
+        console.log('Navigating to previous response');
+        // Example: this.currentResponseIndex = Math.max(0, this.currentResponseIndex - 1);
+        // Load the response at the new index
+        // this.loadResponseAtIndex(this.currentResponseIndex);
+    }
+
+    navigateNextResponse() {
+        // Implement logic to navigate to the next response
+        console.log('Navigating to next response');
+        // Example: this.currentResponseIndex = Math.min(this.maxResponseIndex, this.currentResponseIndex + 1);
+        // Load the response at the new index
+        // this.loadResponseAtIndex(this.currentResponseIndex);
     }
 }
 
