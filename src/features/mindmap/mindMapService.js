@@ -419,6 +419,65 @@ class MindMapService extends EventEmitter {
     }
 
     /**
+     * Import mind map data (for crash recovery)
+     * @param {object} data - Mind map data to import
+     */
+    async importData(data) {
+        try {
+            if (!data || !data.nodes || !data.edges) {
+                console.warn('[MindMapService] Invalid import data');
+                return false;
+            }
+
+            // Clear existing data
+            this.clearData();
+
+            // Import nodes
+            if (Array.isArray(data.nodes)) {
+                data.nodes.forEach(node => {
+                    this.nodes.set(node.text.toLowerCase(), {
+                        ...node,
+                        mentionedBy: new Set(node.mentionedBy || [])
+                    });
+                });
+            }
+
+            // Import edges
+            if (Array.isArray(data.edges)) {
+                data.edges.forEach(edge => {
+                    const edgeKey = [edge.source, edge.target].sort().join('_');
+                    this.edges.set(edgeKey, edge);
+                });
+            }
+
+            // Restore metadata if available
+            if (data.metadata) {
+                this.nodeIdCounter = Math.max(...Array.from(this.nodes.values()).map(n => 
+                    parseInt(n.id.replace('node_', '')) || 0
+                )) + 1;
+                this.edgeIdCounter = Math.max(...Array.from(this.edges.values()).map(e => 
+                    parseInt(e.id.replace('edge_', '')) || 0
+                )) + 1;
+            }
+
+            console.log('[MindMapService] Data imported successfully:', {
+                nodes: this.nodes.size,
+                edges: this.edges.size
+            });
+
+            this.emit('mindmap:imported', {
+                nodeCount: this.nodes.size,
+                edgeCount: this.edges.size
+            });
+
+            return true;
+        } catch (error) {
+            console.error('[MindMapService] Import failed:', error);
+            return false;
+        }
+    }
+
+    /**
      * Clear all mind map data
      */
     clearData() {

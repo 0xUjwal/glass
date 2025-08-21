@@ -690,6 +690,346 @@ const setAggressiveFocusMode = (enabled) => {
 };
 const getAggressiveFocusMode = () => aggressiveFocusMode;
 
+/**
+ * Recreate a window after crash
+ */
+const recreateWindow = async (windowName) => {
+    console.log(`[WindowManager] Recreating window: ${windowName}`);
+    
+    try {
+        // Remove old window from pool if it exists
+        const oldWindow = windowPool.get(windowName);
+        if (oldWindow && !oldWindow.isDestroyed()) {
+            oldWindow.close();
+        }
+        windowPool.delete(windowName);
+
+        // Recreate based on window type
+        switch (windowName) {
+            case 'header':
+                await recreateHeaderWindow();
+                break;
+            case 'ask':
+                await recreateAskWindow();
+                break;
+            case 'listen':
+                await recreateListenWindow();
+                break;
+            case 'settings':
+                await recreateSettingsWindow();
+                break;
+            case 'shortcut-settings':
+                await recreateShortcutSettingsWindow();
+                break;
+            default:
+                throw new Error(`Unknown window type: ${windowName}`);
+        }
+
+        console.log(`[WindowManager] Successfully recreated window: ${windowName}`);
+        return true;
+    } catch (error) {
+        console.error(`[WindowManager] Failed to recreate window ${windowName}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Recreate header window
+ */
+const recreateHeaderWindow = async () => {
+    const header = new BrowserWindow({
+        title: 'pickleglass',
+        width: 600,
+        height: 60,
+        titleBarStyle: 'hidden',
+        trafficLightPosition: { x: 16, y: 8 },
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        roundedCorners: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            preload: path.join(__dirname, '..', 'preload.js'),
+            backgroundThrottling: false,
+            webSecurity: true
+        }
+    });
+
+    windowPool.set('header', header);
+    
+    header.loadFile(path.join(__dirname, '..', 'ui', 'app', 'header.html'));
+    setupHeaderWindowEvents(header);
+    
+    if (shouldUseLiquidGlass) {
+        liquidGlass.applyLiquidGlass(header);
+    }
+    
+    return header;
+};
+
+/**
+ * Recreate ask window
+ */
+const recreateAskWindow = async () => {
+    const header = windowPool.get('header');
+    if (!header) {
+        throw new Error('Header window required for ask window creation');
+    }
+
+    const ask = new BrowserWindow({
+        width: 600,
+        height: 400,
+        titleBarStyle: 'hidden',
+        resizable: true,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        show: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        roundedCorners: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            preload: path.join(__dirname, '..', 'preload.js'),
+            backgroundThrottling: false,
+            webSecurity: true
+        }
+    });
+
+    windowPool.set('ask', ask);
+    
+    ask.loadFile(path.join(__dirname, '..', 'ui', 'ask', 'ask.html'));
+    setupFeatureWindowEvents(ask, 'ask');
+    
+    if (shouldUseLiquidGlass) {
+        liquidGlass.applyLiquidGlass(ask);
+    }
+    
+    return ask;
+};
+
+/**
+ * Recreate listen window
+ */
+const recreateListenWindow = async () => {
+    const header = windowPool.get('header');
+    if (!header) {
+        throw new Error('Header window required for listen window creation');
+    }
+
+    const listen = new BrowserWindow({
+        width: 400,
+        height: 300,
+        titleBarStyle: 'hidden',
+        resizable: true,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        show: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        roundedCorners: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            preload: path.join(__dirname, '..', 'preload.js'),
+            backgroundThrottling: false,
+            webSecurity: true
+        }
+    });
+
+    windowPool.set('listen', listen);
+    
+    listen.loadFile(path.join(__dirname, '..', 'ui', 'listen', 'listen.html'));
+    setupFeatureWindowEvents(listen, 'listen');
+    
+    if (shouldUseLiquidGlass) {
+        liquidGlass.applyLiquidGlass(listen);
+    }
+    
+    return listen;
+};
+
+/**
+ * Recreate settings window
+ */
+const recreateSettingsWindow = async () => {
+    const settings = new BrowserWindow({
+        width: 240,
+        height: 400,
+        titleBarStyle: 'hidden',
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        show: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        roundedCorners: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            preload: path.join(__dirname, '..', 'preload.js'),
+            backgroundThrottling: false,
+            webSecurity: true
+        }
+    });
+
+    windowPool.set('settings', settings);
+    
+    settings.loadFile(path.join(__dirname, '..', 'ui', 'settings', 'settings.html'));
+    setupFeatureWindowEvents(settings, 'settings');
+    
+    if (shouldUseLiquidGlass) {
+        liquidGlass.applyLiquidGlass(settings);
+    }
+    
+    return settings;
+};
+
+/**
+ * Recreate shortcut settings window
+ */
+const recreateShortcutSettingsWindow = async () => {
+    const shortcutSettings = new BrowserWindow({
+        width: 353,
+        height: 720,
+        titleBarStyle: 'hidden',
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        show: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        roundedCorners: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            preload: path.join(__dirname, '..', 'preload.js'),
+            backgroundThrottling: false,
+            webSecurity: true
+        }
+    });
+
+    windowPool.set('shortcut-settings', shortcutSettings);
+    
+    shortcutSettings.loadFile(path.join(__dirname, '..', 'ui', 'shortcuts', 'shortcuts.html'));
+    setupFeatureWindowEvents(shortcutSettings, 'shortcut-settings');
+    
+    if (shouldUseLiquidGlass) {
+        liquidGlass.applyLiquidGlass(shortcutSettings);
+    }
+    
+    return shortcutSettings;
+};
+
+/**
+ * Setup event handlers for header window
+ */
+const setupHeaderWindowEvents = (header) => {
+    // Copy relevant event handlers from the original header creation
+    header.on('focus', () => {
+        if (aggressiveFocusMode) {
+            applyAggressiveAlwaysOnTop(header);
+        }
+    });
+
+    header.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url);
+        return { action: 'deny' };
+    });
+
+    header.on('closed', () => {
+        windowPool.delete('header');
+    });
+};
+
+/**
+ * Setup event handlers for feature windows
+ */
+const setupFeatureWindowEvents = (window, windowName) => {
+    window.on('focus', () => {
+        if (aggressiveFocusMode) {
+            applyAggressiveAlwaysOnTop(window);
+        }
+    });
+
+    window.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url);
+        return { action: 'deny' };
+    });
+
+    window.on('closed', () => {
+        windowPool.delete(windowName);
+    });
+};
+
+/**
+ * Close all windows gracefully
+ */
+const closeAllWindows = async () => {
+    console.log('[WindowManager] Closing all windows gracefully');
+    
+    const closePromises = [];
+    
+    for (const [name, window] of windowPool.entries()) {
+        if (window && !window.isDestroyed()) {
+            closePromises.push(new Promise((resolve) => {
+                window.once('closed', resolve);
+                window.close();
+            }));
+        }
+    }
+    
+    try {
+        await Promise.all(closePromises);
+        windowPool.clear();
+        console.log('[WindowManager] All windows closed gracefully');
+    } catch (error) {
+        console.error('[WindowManager] Error closing windows:', error);
+    }
+};
+
+/**
+ * Get window manager instance for crash recovery
+ */
+const windowManager = {
+    windowPool,
+    recreateWindow,
+    closeAllWindows
+};
+
 module.exports = {
     createWindows,
     windowPool,
@@ -709,4 +1049,8 @@ module.exports = {
     restoreWindowFocus,
     setAggressiveFocusMode,
     getAggressiveFocusMode,
+    // Crash recovery functions
+    recreateWindow,
+    closeAllWindows,
+    windowManager
 };

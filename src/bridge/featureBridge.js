@@ -294,6 +294,32 @@ module.exports = {
       return await enhancedService.videoLearningService.exportSessionData(sessionId, format);
     });
 
+    // Crash Recovery & App State IPC handlers
+    ipcMain.handle('crash-recovery:get-reports-summary', async () => {
+      const { crashRecoveryManager } = require('../index');
+      return crashRecoveryManager ? await crashRecoveryManager.getCrashReportsSummary() : [];
+    });
+    
+    ipcMain.handle('app-state:save', async () => {
+      const { appStateManager } = require('../index');
+      return appStateManager ? await appStateManager.saveState() : false;
+    });
+    
+    ipcMain.handle('app-state:get-summary', async () => {
+      const { appStateManager } = require('../index');
+      return appStateManager ? appStateManager.getStateSummary() : null;
+    });
+    
+    ipcMain.handle('app-state:export', async () => {
+      const { appStateManager } = require('../index');
+      return appStateManager ? await appStateManager.exportState() : null;
+    });
+    
+    ipcMain.handle('app-state:import', async (event, stateJson) => {
+      const { appStateManager } = require('../index');
+      return appStateManager ? await appStateManager.importState(stateJson) : false;
+    });
+
     console.log('[FeatureBridge] Initialized with all feature handlers.');
   },
 

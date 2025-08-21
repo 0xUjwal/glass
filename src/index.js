@@ -29,10 +29,26 @@ const modelStateService = require('./features/common/services/modelStateService'
 const featureBridge = require('./bridge/featureBridge');
 const windowBridge = require('./bridge/windowBridge');
 
+// Core system managers
+const AppStateManager = require('./core/appStateManager');
+const CrashRecoveryManager = require('./core/crashRecoveryManager');
+
 // Global variables
 const eventBridge = new EventEmitter();
 let WEB_PORT = 3000;
 let isShuttingDown = false; // Flag to prevent infinite shutdown loop
+
+// Global system managers
+let appStateManager = null;
+let crashRecoveryManager = null;
+let enhancedService = null;
+
+// Export managers for IPC access
+module.exports = {
+    get appStateManager() { return appStateManager; },
+    get crashRecoveryManager() { return crashRecoveryManager; },
+    get enhancedService() { return enhancedService; }
+};
 
 //////// after_modelStateService ////////
 global.modelStateService = modelStateService;
@@ -209,6 +225,21 @@ app.whenReady().then(async () => {
         await modelStateService.initialize();
         //////// after_modelStateService ////////
 
+        // Initialize enhanced services
+        try {
+            const EnhancedService = require('./features/enhanced/enhancedService');
+            enhancedService = new EnhancedService();
+            await enhancedService.initialize();
+            console.log('>>> [index.js] Enhanced services initialized');
+        } catch (error) {
+            console.error('>>> [index.js] Enhanced services initialization failed:', error);
+        }
+
+        // Initialize app state manager
+        appStateManager = new AppStateManager(enhancedService);
+        await appStateManager.initialize();
+        console.log('>>> [index.js] App state manager initialized');
+
         featureBridge.initialize();  // 추가: featureBridge 초기화
         windowBridge.initialize();
         setupWebDataHandlers();
@@ -231,6 +262,17 @@ app.whenReady().then(async () => {
         console.log('Web front-end listening on', WEB_PORT);
         
         createWindows();
+
+        // Initialize crash recovery manager after windows are created
+        const { windowManager } = require('./window/windowManager.js');
+        crashRecoveryManager = new CrashRecoveryManager(windowManager, appStateManager, enhancedService);
+        console.log('>>> [index.js] Crash recovery manager initialized');
+
+        // Restore enhanced services state
+        if (appStateManager && enhancedService) {
+            await appStateManager.restoreEnhancedServicesState();
+            console.log('>>> [index.js] Enhanced services state restored');
+        }
 
     } catch (err) {
         console.error('>>> [index.js] Database initialization failed - some features may not work', err);
@@ -299,7 +341,27 @@ app.on('before-quit', async (event) => {
             }
         }
         
-        // 4. Close database connections (final cleanup)
+        // 4. Cleanup enhanced services and save state
+        try {
+            if (appStateManager) {
+                await appStateManager.saveEnhancedServicesState();
+                appStateManager.shutdown();
+                console.log('[Shutdown] App state saved and manager shutdown');
+            }
+            
+            if (enhancedService) {
+                // Stop video learning if active
+                if (enhancedService.videoLearningService?.isRecording) {
+                    await enhancedService.videoLearningService.stopLearningSession();
+                    console.log('[Shutdown] Video learning session stopped');
+                }
+                console.log('[Shutdown] Enhanced services shutdown');
+            }
+        } catch (enhancedError) {
+            console.warn('[Shutdown] Error shutting down enhanced services:', enhancedError.message);
+        }
+        
+        // 5. Close database connections (final cleanup)
         try {
             databaseInitializer.close();
             console.log('[Shutdown] Database connections closed');

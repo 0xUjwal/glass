@@ -14,6 +14,9 @@ export class AskView extends LitElement {
         headerText: { type: String },
         headerAnimating: { type: Boolean },
         isStreaming: { type: Boolean },
+        // Response navigation properties
+        responses: { type: Array },
+        currentResponseIndex: { type: Number },
     };
 
     static styles = css`
@@ -735,35 +738,56 @@ export class AskView extends LitElement {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 0;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
         }
 
         .nav-btn {
             background: rgba(255, 255, 255, 0.1);
             color: white;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 3px;
-            padding: 6px 12px;
+            padding: 6px 8px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 36px;
-            height: 36px;
-            transition: background 0.15s;
+            min-width: 30px;
+            height: 30px;
+            transition: all 0.15s ease;
+            font-size: 16px;
+            font-weight: bold;
         }
 
-        .nav-btn:hover {
+        .nav-btn:hover:not(:disabled) {
             background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .response-counter {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+            min-width: 60px;
+            text-align: center;
         }
 
         .ai-response-text {
             flex: 1;
             color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-            line-height: 1.5;
-            margin: 0 8px;
+            font-size: 13px;
+            line-height: 1.4;
+            margin: 0 12px;
             overflow-wrap: break-word;
+            text-align: center;
         }
     `;
 
@@ -779,6 +803,10 @@ export class AskView extends LitElement {
         this.isStreaming = false;
         this.lineCopyState = {}; // For managing per-line copy states
         this.lineCopyTimeouts = {}; // For managing per-line copy timeouts
+
+        // Response navigation properties
+        this.responses = [];
+        this.currentResponseIndex = -1;
 
         this.marked = null;
         this.hljs = null;
@@ -846,6 +874,9 @@ export class AskView extends LitElement {
             window.api.askView.onScrollResponseDown(() => this.handleScroll('down'));
             window.api.askView.onClearAskChat(() => this.clearResponseContent());
             window.api.askView.onAskStateUpdate((event, newState) => {
+                const prevLoading = this.isLoading;
+                const prevStreaming = this.isStreaming;
+
                 this.currentResponse = newState.currentResponse;
                 this.currentQuestion = newState.currentQuestion;
                 this.isLoading       = newState.isLoading;
@@ -854,6 +885,14 @@ export class AskView extends LitElement {
                 const wasHidden = !this.showTextInput;
                 this.showTextInput = newState.showTextInput;
               
+                // When streaming ends and we have a completed response, add it to history
+                const wasActive = prevLoading || prevStreaming;
+                const nowIdle = !this.isStreaming && !this.isLoading;
+                if (wasActive && nowIdle && this.currentResponse && this.currentResponse.length > 0) {
+                    console.log('[AskView Navigation] Response completed, adding to history');
+                    this.onResponseCompleted(this.currentResponse, this.currentQuestion);
+                }
+
                 if (newState.showTextInput) {
                   if (wasHidden) {
                     this.updateComplete.then(() => this.focusTextInput());
@@ -910,7 +949,6 @@ export class AskView extends LitElement {
             console.log('✅ AskView: IPC 이벤트 리스너 제거 필요');
         }
     }
-
 
     async loadLibraries() {
         try {
@@ -1000,6 +1038,11 @@ export class AskView extends LitElement {
         // Clear all line copy timeouts
         Object.values(this.lineCopyTimeouts).forEach(timeout => clearTimeout(timeout));
         this.lineCopyTimeouts = {};
+        
+        // Clear response history
+        this.responses = [];
+        this.currentResponseIndex = -1;
+        
         this.requestUpdate();
     }
 
@@ -1015,7 +1058,6 @@ export class AskView extends LitElement {
             }
         });
     }
-
 
     loadScript(src) {
         return new Promise((resolve, reject) => {
@@ -1066,7 +1108,6 @@ export class AskView extends LitElement {
             }
         }
     }
-
 
     /**
      * Renders the response content as lines, each with a per-line copy button.
@@ -1248,7 +1289,6 @@ export class AskView extends LitElement {
         }
     }
 
-
     requestWindowResize(targetHeight) {
         if (window.api) {
             window.api.askView.adjustWindowHeight(targetHeight);
@@ -1327,7 +1367,6 @@ export class AskView extends LitElement {
 
         return text;
     }
-
 
     async handleCopy() {
         if (this.copyState === 'copied') return;
@@ -1441,12 +1480,17 @@ export class AskView extends LitElement {
         if (changedProperties.has('showTextInput') && this.showTextInput) {
             this.focusTextInput();
         }
+
+        // Update navigation buttons when responses change
+        if (changedProperties.has('responses') || changedProperties.has('currentResponseIndex') || changedProperties.has('isLoading') || changedProperties.has('isStreaming')) {
+            console.log('[AskView Navigation] Updating navigation buttons due to responses or index change');
+            this.updateNavigationButtons();
+        }
     }
 
     firstUpdated() {
         setTimeout(() => this.adjustWindowHeight(), 200);
     }
-
 
     getTruncatedQuestion(question, maxLength = 30) {
         if (!question) return '';
@@ -1454,7 +1498,68 @@ export class AskView extends LitElement {
         return question.substring(0, maxLength) + '...';
     }
 
+    // Navigation helper methods
+    onResponseCompleted(response, question = '') {
+        console.log('[AskView Navigation] New response completed, length:', response.length);
+        const responseObj = {
+            content: response,
+            question: question,
+            timestamp: new Date().toISOString(),
+            id: Date.now()
+        };
+        
+        this.responses.push(responseObj);
+        this.currentResponseIndex = this.responses.length - 1;
+        
+        // Update current display if not streaming/loading
+        if (!this.isStreaming && !this.isLoading) {
+            this.currentResponse = response;
+            this.currentQuestion = question;
+        }
+        
+        this.updateNavigationButtons();
+        this.requestUpdate();
+    }
 
+    updateNavigationButtons() {
+        // Update button states in the next render cycle
+        this.requestUpdate();
+    }
+
+    getResponseCounter() {
+        if (this.responses.length === 0) return '';
+        return `${this.currentResponseIndex + 1}/${this.responses.length}`;
+    }
+
+    getResponseStatusText() {
+        if (this.isLoading) return 'Loading...';
+        if (this.isStreaming) return 'Streaming...';
+        if (this.responses.length === 0) return 'No responses yet';
+        return 'Response history';
+    }
+
+    canNavigatePrevious() {
+        return this.responses.length > 0 && this.currentResponseIndex > 0 && !this.isLoading && !this.isStreaming;
+    }
+
+    canNavigateNext() {
+        return this.responses.length > 0 && this.currentResponseIndex < this.responses.length - 1 && !this.isLoading && !this.isStreaming;
+    }
+
+    loadResponseAtIndex(index) {
+        if (index < 0 || index >= this.responses.length) {
+            console.warn('[AskView Navigation] Invalid response index:', index);
+            return;
+        }
+
+        const response = this.responses[index];
+        this.currentResponse = response.content;
+        this.currentQuestion = response.question;
+        this.currentResponseIndex = index;
+        
+        console.log(`[AskView Navigation] Loaded response ${index + 1}/${this.responses.length}`);
+        this.requestUpdate();
+    }
 
     render() {
         const hasResponse = this.isLoading || this.currentResponse || this.isStreaming;
@@ -1508,6 +1613,26 @@ export class AskView extends LitElement {
                     <!-- Content is dynamically generated in updateResponseContent() -->
                 </div>
 
+                <!-- AI Response Navigation -->
+                <div class="ai-response-container ${!hasResponse ? 'hidden' : ''}">
+                    <button 
+                        class="nav-btn prev" 
+                        @click="${this.navigatePreviousResponse}" 
+                        title="Previous Response"
+                        ?disabled="${!this.canNavigatePrevious()}">
+                        &#8592;
+                    </button>
+                    <span class="response-counter">${this.getResponseCounter()}</span>
+                    <span class="ai-response-text">${this.getResponseStatusText()}</span>
+                    <button 
+                        class="nav-btn next" 
+                        @click="${this.navigateNextResponse}" 
+                        title="Next Response"
+                        ?disabled="${!this.canNavigateNext()}">
+                        &#8594;
+                    </button>
+                </div>
+
                 <!-- Text Input Container -->
                 <div class="text-input-container ${!hasResponse ? 'no-response' : ''} ${!this.showTextInput ? 'hidden' : ''}">
                     <input
@@ -1527,33 +1652,28 @@ export class AskView extends LitElement {
                         </span>
                     </button>
                 </div>
-
-                <!-- AI Response Navigation -->
-                <div class="ai-response-container ${!hasResponse ? 'hidden' : ''}">
-                    <button class="nav-btn prev" @click="${this.navigatePreviousResponse}" title="Previous Response">&#8592;</button>
-                    <span class="ai-response-text">${this.renderedResponse}</span>
-                    <button class="nav-btn next" @click="${this.navigateNextResponse}" title="Next Response">&#8594;</button>
-                </div>
             </div>
         `;
     }
 
-    // Dynamically resize the BrowserWindow to fit current content
+        // Dynamically resize the BrowserWindow to fit current content
     adjustWindowHeight() {
         if (!window.api) return;
 
         this.updateComplete.then(() => {
             const headerEl = this.shadowRoot.querySelector('.response-header');
             const responseEl = this.shadowRoot.querySelector('.response-container');
+            const navEl = this.shadowRoot.querySelector('.ai-response-container');
             const inputEl = this.shadowRoot.querySelector('.text-input-container');
 
             if (!headerEl || !responseEl) return;
 
             const headerHeight = headerEl.classList.contains('hidden') ? 0 : headerEl.offsetHeight;
             const responseHeight = responseEl.scrollHeight;
+            const navHeight = (navEl && !navEl.classList.contains('hidden')) ? navEl.offsetHeight : 0;
             const inputHeight = (inputEl && !inputEl.classList.contains('hidden')) ? inputEl.offsetHeight : 0;
 
-            const idealHeight = headerHeight + responseHeight + inputHeight;
+            const idealHeight = headerHeight + responseHeight + navHeight + inputHeight;
 
             const targetHeight = Math.min(700, idealHeight);
 
@@ -1573,21 +1693,33 @@ export class AskView extends LitElement {
         });
     }
 
-    // Navigation methods
+    // Navigation methods - Now fully implemented
     navigatePreviousResponse() {
-        // Implement logic to navigate to the previous response
-        console.log('Navigating to previous response');
-        // Example: this.currentResponseIndex = Math.max(0, this.currentResponseIndex - 1);
-        // Load the response at the new index
-        // this.loadResponseAtIndex(this.currentResponseIndex);
+        console.log('[AskView Navigation] Attempting to navigate to previous response');
+        
+        if (!this.canNavigatePrevious()) {
+            console.log('[AskView Navigation] Cannot navigate to previous response');
+            return;
+        }
+
+        const newIndex = this.currentResponseIndex - 1;
+        console.log(`[AskView Navigation] Navigating from ${this.currentResponseIndex} to ${newIndex}`);
+        
+        this.loadResponseAtIndex(newIndex);
     }
 
     navigateNextResponse() {
-        // Implement logic to navigate to the next response
-        console.log('Navigating to next response');
-        // Example: this.currentResponseIndex = Math.min(this.maxResponseIndex, this.currentResponseIndex + 1);
-        // Load the response at the new index
-        // this.loadResponseAtIndex(this.currentResponseIndex);
+        console.log('[AskView Navigation] Attempting to navigate to next response');
+        
+        if (!this.canNavigateNext()) {
+            console.log('[AskView Navigation] Cannot navigate to next response');
+            return;
+        }
+
+        const newIndex = this.currentResponseIndex + 1;
+        console.log(`[AskView Navigation] Navigating from ${this.currentResponseIndex} to ${newIndex}`);
+        
+        this.loadResponseAtIndex(newIndex);
     }
 }
 
