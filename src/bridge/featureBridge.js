@@ -12,6 +12,7 @@ const askService = require('../features/ask/askService');
 const listenService = require('../features/listen/listenService');
 const permissionService = require('../features/common/services/permissionService');
 const encryptionService = require('../features/common/services/encryptionService');
+const enhancedService = require('../features/enhanced/enhancedService');
 
 module.exports = {
   // Renderer로부터의 요청을 수신하고 서비스로 전달
@@ -227,6 +228,70 @@ module.exports = {
     // 전체 상태 조회
     ipcMain.handle('localai:get-all-states', async (event) => {
       return await localAIManager.getAllServiceStates();
+    });
+
+    // Enhanced Services
+    ipcMain.handle('enhanced:initialize', async () => await enhancedService.initialize());
+    ipcMain.handle('enhanced:process-transcription', async (event, data) => await enhancedService.processTranscription(data));
+    ipcMain.handle('enhanced:process-web-content', async (event, data) => await enhancedService.processWebContent(data));
+    ipcMain.handle('enhanced:start-video-learning', async (event, options) => await enhancedService.startVideoLearning(options));
+    ipcMain.handle('enhanced:stop-video-learning', async () => await enhancedService.stopVideoLearning());
+    ipcMain.handle('enhanced:get-status', async () => await enhancedService.getStatus());
+    ipcMain.handle('enhanced:toggle-service', async (event, { service, enabled }) => await enhancedService.toggleService(service, enabled));
+    
+    // Translation Service
+    ipcMain.handle('translation:translate', async (event, { text, targetLanguage, sourceLanguage }) => {
+      return await enhancedService.translationService.translate(text, targetLanguage, sourceLanguage);
+    });
+    ipcMain.handle('translation:detect-language', async (event, text) => {
+      return await enhancedService.translationService.detectLanguage(text);
+    });
+    ipcMain.handle('translation:get-supported-languages', async () => {
+      return await enhancedService.translationService.getSupportedLanguages();
+    });
+    
+    // Keyword Service
+    ipcMain.handle('keywords:extract', async (event, text) => {
+      return await enhancedService.keywordService.extractKeywords(text);
+    });
+    ipcMain.handle('keywords:extract-batch', async (event, texts) => {
+      return await enhancedService.keywordService.extractKeywordsBatch(texts);
+    });
+    
+    // Glossary Service
+    ipcMain.handle('glossary:get-definitions', async (event, terms) => {
+      return await enhancedService.glossaryService.getDefinitions(terms);
+    });
+    ipcMain.handle('glossary:get-contextual-definition', async (event, { term, context }) => {
+      return await enhancedService.glossaryService.getContextualDefinition(term, context);
+    });
+    
+    // Mind Map Service
+    ipcMain.handle('mindmap:add-node', async (event, data) => {
+      return await enhancedService.mindMapService.addNode(data);
+    });
+    ipcMain.handle('mindmap:export-data', async () => {
+      return await enhancedService.mindMapService.exportData();
+    });
+    ipcMain.handle('mindmap:get-summary', async () => {
+      return await enhancedService.mindMapService.getConversationSummary();
+    });
+    ipcMain.handle('mindmap:clear-data', async () => {
+      return await enhancedService.mindMapService.clearData();
+    });
+    
+    // Video Learning Service
+    ipcMain.handle('video-learning:start-session', async (event, options) => {
+      return await enhancedService.videoLearningService.startLearningSession(options);
+    });
+    ipcMain.handle('video-learning:stop-session', async () => {
+      return await enhancedService.videoLearningService.stopLearningSession();
+    });
+    ipcMain.handle('video-learning:get-session-data', async (event, sessionId) => {
+      return await enhancedService.videoLearningService.getSessionData(sessionId);
+    });
+    ipcMain.handle('video-learning:export-session', async (event, { sessionId, format }) => {
+      return await enhancedService.videoLearningService.exportSessionData(sessionId, format);
     });
 
     console.log('[FeatureBridge] Initialized with all feature handlers.');

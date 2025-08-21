@@ -311,5 +311,45 @@ contextBridge.exposeInMainWorld('api', {
     // Listeners
     onChangeListenCaptureState: (callback) => ipcRenderer.on('change-listen-capture-state', callback),
     removeOnChangeListenCaptureState: (callback) => ipcRenderer.removeListener('change-listen-capture-state', callback)
+  },
+
+  // Enhanced AI Services
+  enhanced: {
+    // Service Management
+    initialize: () => ipcRenderer.invoke('enhanced:initialize'),
+    processTranscription: (data) => ipcRenderer.invoke('enhanced:process-transcription', data),
+    processWebContent: (data) => ipcRenderer.invoke('enhanced:process-web-content', data),
+    startVideoLearning: (options) => ipcRenderer.invoke('enhanced:start-video-learning', options),
+    stopVideoLearning: () => ipcRenderer.invoke('enhanced:stop-video-learning'),
+    getStatus: () => ipcRenderer.invoke('enhanced:get-status'),
+    toggleService: (service, enabled) => ipcRenderer.invoke('enhanced:toggle-service', { service, enabled }),
+    
+    // Translation API
+    translate: (text, targetLanguage, sourceLanguage = null) => 
+      ipcRenderer.invoke('translation:translate', { text, targetLanguage, sourceLanguage }),
+    detectLanguage: (text) => ipcRenderer.invoke('translation:detect-language', text),
+    getSupportedLanguages: () => ipcRenderer.invoke('translation:get-supported-languages'),
+    
+    // Keyword Extraction API
+    extractKeywords: (text) => ipcRenderer.invoke('keywords:extract', text),
+    extractKeywordsBatch: (texts) => ipcRenderer.invoke('keywords:extract-batch', texts),
+    
+    // Glossary API
+    getDefinitions: (terms) => ipcRenderer.invoke('glossary:get-definitions', terms),
+    getContextualDefinition: (term, context) => 
+      ipcRenderer.invoke('glossary:get-contextual-definition', { term, context }),
+    
+    // Mind Map API
+    addMindMapNode: (data) => ipcRenderer.invoke('mindmap:add-node', data),
+    exportMindMapData: () => ipcRenderer.invoke('mindmap:export-data'),
+    getMindMapSummary: () => ipcRenderer.invoke('mindmap:get-summary'),
+    clearMindMapData: () => ipcRenderer.invoke('mindmap:clear-data'),
+    
+    // Video Learning API
+    startVideoLearningSession: (options) => ipcRenderer.invoke('video-learning:start-session', options),
+    stopVideoLearningSession: () => ipcRenderer.invoke('video-learning:stop-session'),
+    getVideoLearningSessionData: (sessionId) => ipcRenderer.invoke('video-learning:get-session-data', sessionId),
+    exportVideoLearningSession: (sessionId, format) => 
+      ipcRenderer.invoke('video-learning:export-session', { sessionId, format })
   }
 });
