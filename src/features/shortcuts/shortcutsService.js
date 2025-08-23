@@ -1,4 +1,4 @@
-const { globalShortcut, screen } = require('electron');
+const { app, globalShortcut, screen } = require('electron');
 const shortcutsRepository = require('./repositories');
 const internalBridge = require('../../bridge/internalBridge');
 const askService = require('../ask/askService');
@@ -73,6 +73,7 @@ class ShortcutsService {
             scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
             clearAskChat: isMac ? 'Cmd+Shift+D' : 'Ctrl+Shift+D',
             restoreFocus: isMac ? 'Cmd+Shift+F' : 'Ctrl+Shift+F',
+            quitApp: isMac ? 'Cmd+Q' : 'Ctrl+Q',
         };
     }
 
@@ -282,6 +283,12 @@ class ShortcutsService {
                             const success = windowManager.restoreWindowFocus();
                             console.log(`[ShortcutsService] Focus restoration ${success ? 'succeeded' : 'failed'}`);
                         }
+                    };
+                    break;
+                case 'quitApp':
+                    callback = () => {
+                        console.log('[ShortcutsService] Quit application shortcut triggered');
+                        app.quit();
                     };
                     break;
             }
