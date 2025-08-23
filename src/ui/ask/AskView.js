@@ -109,31 +109,31 @@ export class AskView extends LitElement {
         }
 
         .response-container pre {
-            background: rgba(0, 0, 0, 0.4) !important;
+            background: rgba(22, 27, 34, 0.8) !important;
+            border: 3px solid #0ca036ff !important; /* Pink border for testing */
             border-radius: 8px !important;
-            padding: 12px !important;
+            padding: 1rem !important;
             margin: 8px 0 !important;
             overflow-x: auto !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            white-space: pre !important;
-            word-wrap: normal !important;
-            word-break: normal !important;
+            white-space: pre-wrap !important;
+            word-break: break-all !important;
+            position: relative !important;
         }
 
         .response-container code {
-            font-family: 'Monaco', 'Menlo', 'Consolas', monospace !important;
-            font-size: 11px !important;
+            font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace !important;
+            font-size: 13px !important;
             background: transparent !important;
-            white-space: pre !important;
-            word-wrap: normal !important;
-            word-break: normal !important;
+            white-space: pre-wrap !important;
+            word-break: break-all !important;
+            line-height: 1.5 !important;
         }
 
         .response-container pre code {
-            white-space: pre !important;
-            word-wrap: normal !important;
-            word-break: normal !important;
+            white-space: pre-wrap !important;
+            word-break: break-all !important;
             display: block !important;
+            color: #f8f8f2 !important; /* Default Dracula text color */
         }
 
         .response-container p code {
@@ -143,35 +143,89 @@ export class AskView extends LitElement {
             color: #ffd700 !important;
         }
 
+        /* Dracula theme inspired syntax highlighting - TEST VERSION */
         .hljs-keyword {
-            color: #ff79c6 !important;
+            color: #ff0000 !important; /* Bright red for testing */
+            background: yellow !important; /* Yellow background for testing */
+            font-weight: bold !important;
         }
         .hljs-string {
-            color: #f1fa8c !important;
+            color: #f1fa8c !important; /* Yellow for strings */
         }
         .hljs-comment {
-            color: #6272a4 !important;
+            color: #6272a4 !important; /* Blue-gray for comments */
+            font-style: italic !important;
         }
         .hljs-number {
-            color: #bd93f9 !important;
+            color: #bd93f9 !important; /* Purple for numbers */
         }
         .hljs-function {
-            color: #50fa7b !important;
+            color: #50fa7b !important; /* Green for functions */
         }
         .hljs-variable {
-            color: #8be9fd !important;
+            color: #8be9fd !important; /* Cyan for variables */
         }
         .hljs-built_in {
-            color: #ffb86c !important;
+            color: #ffb86c !important; /* Orange for built-ins */
         }
         .hljs-title {
-            color: #50fa7b !important;
+            color: #50fa7b !important; /* Green for titles */
+            font-weight: 600 !important;
         }
         .hljs-attr {
-            color: #50fa7b !important;
+            color: #50fa7b !important; /* Green for attributes */
         }
         .hljs-tag {
-            color: #ff79c6 !important;
+            color: #ff79c6 !important; /* Pink for tags */
+        }
+        .hljs-type {
+            color: #8be9fd !important; /* Cyan for types */
+        }
+        .hljs-literal {
+            color: #bd93f9 !important; /* Purple for literals */
+        }
+        .hljs-operator {
+            color: #ff79c6 !important; /* Pink for operators */
+        }
+        .hljs-punctuation {
+            color: #f8f8f2 !important; /* Default text for punctuation */
+        }
+        .hljs-meta {
+            color: #6272a4 !important; /* Blue-gray for meta */
+        }
+        .hljs-params {
+            color: #ffb86c !important; /* Orange for parameters */
+        }
+        .hljs-class {
+            color: #8be9fd !important; /* Cyan for classes */
+        }
+
+        /* Line numbers styling */
+        .code-block-with-lines {
+            position: relative;
+            counter-reset: line-counter;
+        }
+
+        .code-line {
+            counter-increment: line-counter;
+            position: relative;
+            padding-left: 3.5em;
+            min-height: 1.5em;
+            line-height: 1.5;
+        }
+
+        .code-line::before {
+            content: counter(line-counter);
+            position: absolute;
+            left: 0;
+            width: 3em;
+            text-align: right;
+            color: rgba(248, 248, 242, 0.3);
+            font-size: 12px;
+            user-select: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            padding-right: 0.5em;
+            margin-right: 0.5em;
         }
 
         .ask-container {
@@ -1069,6 +1123,12 @@ export class AskView extends LitElement {
         });
     }
 
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     parseMarkdown(text) {
         if (!text) return '';
 
@@ -1152,7 +1212,28 @@ export class AskView extends LitElement {
         if (this.hljs) {
             responseContainer.querySelectorAll('pre code').forEach(block => {
                 if (!block.hasAttribute('data-highlighted')) {
-                    this.hljs.highlightElement(block);
+                    // Add line numbers if it's a code block
+                    const codeText = block.textContent;
+                    const lines = codeText.split('\n');
+                    
+                    // Only add line numbers for multi-line code blocks
+                    if (lines.length > 1) {
+                        block.parentElement.classList.add('code-block-with-lines');
+                        
+                        // Apply syntax highlighting first
+                        this.hljs.highlightElement(block);
+                        
+                        // Then add line numbers by wrapping each line
+                        const numberedContent = lines.map((line, index) => 
+                            `<span class="code-line">${this.escapeHtml(line || ' ')}</span>`
+                        ).join('\n');
+                        
+                        // Apply the numbered content
+                        block.innerHTML = numberedContent;
+                    } else {
+                        this.hljs.highlightElement(block);
+                    }
+                    
                     block.setAttribute('data-highlighted', 'true');
                 }
             });
@@ -1182,8 +1263,8 @@ export class AskView extends LitElement {
             return;
         }
         
-        // Use new per-line rendering with copy buttons instead of streaming markdown
-        this.renderResponseWithLineCopy(responseContainer);
+        // Use streaming markdown rendering for better code highlighting
+        this.renderStreamingMarkdown(responseContainer);
 
         // After updating content, recalculate window height
         this.adjustWindowHeightThrottled();
@@ -1225,12 +1306,37 @@ export class AskView extends LitElement {
 
             // 코드 하이라이팅 적용
             if (this.hljs) {
+                console.log('[AskView] Applying syntax highlighting in streaming...');
                 responseContainer.querySelectorAll('pre code').forEach(block => {
                     if (!block.hasAttribute('data-highlighted')) {
-                        this.hljs.highlightElement(block);
+                        console.log('[AskView] Found code block in streaming, applying highlighting');
+                        // Add line numbers if it's a code block
+                        const codeText = block.textContent;
+                        const lines = codeText.split('\n');
+                        
+                        // Only add line numbers for multi-line code blocks
+                        if (lines.length > 1) {
+                            console.log('[AskView] Adding line numbers for multi-line code block in streaming');
+                            block.parentElement.classList.add('code-block-with-lines');
+                            const numberedContent = lines.map((line, index) => 
+                                `<span class="code-line">${this.escapeHtml(line || ' ')}</span>`
+                            ).join('\n');
+                            
+                            // Apply syntax highlighting first
+                            this.hljs.highlightElement(block);
+                            
+                            // Then add line numbers
+                            block.innerHTML = numberedContent;
+                        } else {
+                            console.log('[AskView] Applying highlighting for single-line code in streaming');
+                            this.hljs.highlightElement(block);
+                        }
+                        
                         block.setAttribute('data-highlighted', 'true');
                     }
                 });
+            } else {
+                console.log('[AskView] hljs library not available in streaming');
             }
 
             // 스크롤을 맨 아래로
@@ -1266,7 +1372,29 @@ export class AskView extends LitElement {
                 // 코드 하이라이팅 적용
                 if (this.hljs) {
                     responseContainer.querySelectorAll('pre code').forEach(block => {
-                        this.hljs.highlightElement(block);
+                        if (!block.hasAttribute('data-highlighted')) {
+                            // Add line numbers if it's a code block
+                            const codeText = block.textContent;
+                            const lines = codeText.split('\n');
+                            
+                            // Only add line numbers for multi-line code blocks
+                            if (lines.length > 1) {
+                                block.parentElement.classList.add('code-block-with-lines');
+                                const numberedContent = lines.map((line, index) => 
+                                    `<span class="code-line">${this.escapeHtml(line || ' ')}</span>`
+                                ).join('\n');
+                                
+                                // Apply syntax highlighting first
+                                this.hljs.highlightElement(block);
+                                
+                                // Then add line numbers
+                                block.innerHTML = numberedContent;
+                            } else {
+                                this.hljs.highlightElement(block);
+                            }
+                            
+                            block.setAttribute('data-highlighted', 'true');
+                        }
                     });
                 }
             } catch (error) {
