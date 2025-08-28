@@ -135,6 +135,51 @@ function setAutoUpdate(uid, isEnabled) {
     }
 }
 
+function getUseDefaultApiKey(uid) {
+    const db = sqliteClient.getDb();
+    const targetUid = uid || sqliteClient.defaultUserId;
+
+    try {
+        const row = db.prepare('SELECT use_default_api_key FROM users WHERE uid = ?').get(targetUid);
+        
+        if (row) {
+            console.log('SQLite: Use default API key setting found:', row.use_default_api_key);
+            return row.use_default_api_key !== 0;
+        } else {
+            // User doesn't exist, create them with default settings
+            const now = Math.floor(Date.now() / 1000);
+            const stmt = db.prepare(
+                'INSERT OR REPLACE INTO users (uid, display_name, email, created_at, auto_update_enabled, use_default_api_key) VALUES (?, ?, ?, ?, ?, ?)');
+            stmt.run(targetUid, 'User', 'user@example.com', now, 1, 1);
+            return true; // default to enabled
+        }
+    } catch (error) {
+        console.error('SQLite: Error getting use_default_api_key setting:', error);
+        return true; // fallback to enabled
+    }
+}
+
+function setUseDefaultApiKey(uid, useDefault) {
+    const db = sqliteClient.getDb();
+    const targetUid = uid || sqliteClient.defaultUserId;
+    
+    try {
+        const result = db.prepare('UPDATE users SET use_default_api_key = ? WHERE uid = ?').run(useDefault ? 1 : 0, targetUid);
+        
+        // If no rows were updated, the user might not exist, so create them
+        if (result.changes === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            const stmt = db.prepare('INSERT OR REPLACE INTO users (uid, display_name, email, created_at, auto_update_enabled, use_default_api_key) VALUES (?, ?, ?, ?, ?, ?)');
+            stmt.run(targetUid, 'User', 'user@example.com', now, 1, useDefault ? 1 : 0);
+        }
+        
+        return { success: true };
+    } catch (error) {
+        console.error('SQLite: Error setting use default API key:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     getPresets,
     getPresetTemplates,
@@ -142,5 +187,7 @@ module.exports = {
     updatePreset,
     deletePreset,
     getAutoUpdate,
-    setAutoUpdate
+    setAutoUpdate,
+    getUseDefaultApiKey,
+    setUseDefaultApiKey
 };

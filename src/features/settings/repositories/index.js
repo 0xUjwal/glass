@@ -44,6 +44,16 @@ const settingsRepositoryAdapter = {
         const uid = authService.getCurrentUserId();
         return getBaseRepository().setAutoUpdate(uid, isEnabled);
     },
+
+    getUseDefaultApiKey: () => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().getUseDefaultApiKey(uid);
+    },
+
+    setUseDefaultApiKey: (useDefault) => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().setUseDefaultApiKey(uid, useDefault);
+    },
 };
 
 module.exports = settingsRepositoryAdapter;

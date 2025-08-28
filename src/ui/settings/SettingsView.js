@@ -240,6 +240,83 @@ export class SettingsView extends LitElement {
             color: rgba(255, 255, 255, 0.4);
         }
 
+        /* Toggle Switch for Default API Key */
+        .toggle-section {
+            padding: 8px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .toggle-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .toggle-switch.on {
+            background: rgba(0, 122, 255, 0.6);
+            border-color: rgba(0, 122, 255, 0.8);
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 14px;
+            height: 14px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+        }
+
+        .toggle-switch.on .toggle-slider {
+            transform: translateX(16px);
+        }
+
+        .warning-icon {
+            color: #ff3b30;
+            font-size: 12px;
+            margin-left: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .warning-icon .tooltip {
+            position: absolute;
+            bottom: 20px;
+            left: -100px;
+            width: 200px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+        }
+
+        .warning-icon:hover .tooltip {
+            opacity: 1;
+        }
+
         /* Preset Management Section */
         .preset-section {
             padding: 6px 0;
@@ -505,6 +582,8 @@ export class SettingsView extends LitElement {
         installingModels: { type: Object, state: true },
         // Whisper related properties
         whisperModels: { type: Array, state: true },
+        // Default API key toggle
+        useDefaultApiKey: { type: Boolean, state: true },
     };
     //////// after_modelStateService ////////
 
@@ -513,7 +592,7 @@ export class SettingsView extends LitElement {
         //////// after_modelStateService ////////
         this.shortcuts = {};
         this.firebaseUser = null;
-        this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '' };
+        this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '', openrouter: '' };
         this.providerConfig = {};
         this.isLoading = true;
         this.isContentProtectionOn = true;
@@ -537,6 +616,8 @@ export class SettingsView extends LitElement {
         this.handleUsePicklesKey = this.handleUsePicklesKey.bind(this)
         this.autoUpdateEnabled = true;
         this.autoUpdateLoading = true;
+        // Default API key toggle - default to ON
+        this.useDefaultApiKey = true;
         this.loadInitialData();
         //////// after_modelStateService ////////
     }
@@ -613,12 +694,13 @@ export class SettingsView extends LitElement {
         this.isLoading = true;
         try {
             // Load essential data first
-            const [userState, modelSettings, presets, contentProtection, shortcuts] = await Promise.all([
+            const [userState, modelSettings, presets, contentProtection, shortcuts, useDefaultApiKey] = await Promise.all([
                 window.api.settingsView.getCurrentUser(),
                 window.api.settingsView.getModelSettings(), // Facade call
                 window.api.settingsView.getPresets(),
                 window.api.settingsView.getContentProtectionStatus(),
-                window.api.settingsView.getCurrentShortcuts()
+                window.api.settingsView.getCurrentShortcuts(),
+                window.api.settingsView.getUseDefaultApiKey().catch(() => true) // Default to true if not set
             ]);
             
             if (userState && userState.isLoggedIn) this.firebaseUser = userState;
@@ -636,6 +718,7 @@ export class SettingsView extends LitElement {
             this.presets = presets || [];
             this.isContentProtectionOn = contentProtection;
             this.shortcuts = shortcuts || {};
+            this.useDefaultApiKey = useDefaultApiKey !== undefined ? useDefaultApiKey : true;
             if (this.presets.length > 0) {
                 const firstUserPreset = this.presets.find(p => p.is_default === 0);
                 if (firstUserPreset) this.selectedPreset = firstUserPreset;
@@ -715,6 +798,24 @@ export class SettingsView extends LitElement {
         this.apiKeys = { ...this.apiKeys, [provider]: '' };
         await this.refreshModelData();
         this.saving = false;
+    }
+
+    async handleToggleDefaultApiKey() {
+        this.saving = true;
+        try {
+            const newValue = !this.useDefaultApiKey;
+            const result = await window.api.settingsView.setUseDefaultApiKey(newValue);
+            if (result && result.success) {
+                this.useDefaultApiKey = newValue;
+            } else {
+                console.error('Failed to save default API key setting');
+            }
+        } catch (error) {
+            console.error('Error toggling default API key setting:', error);
+        } finally {
+            this.saving = false;
+            this.requestUpdate();
+        }
     }
 
     async refreshModelData() {
@@ -1190,9 +1291,30 @@ export class SettingsView extends LitElement {
         }
 
         const loggedIn = !!this.firebaseUser;
+        const usePickleApiKey = loggedIn && this.useDefaultApiKey;
 
         const apiKeyManagementHTML = html`
             <div class="api-key-section">
+                <!-- Default API Key Toggle -->
+                ${loggedIn ? html`
+                    <div class="toggle-section">
+                        <div class="toggle-label">
+                            Use Pickle's Default API Key
+                            ${!this.useDefaultApiKey ? html`
+                                <span class="warning-icon">
+                                    ⚠
+                                    <div class="tooltip">Please enter your own API key</div>
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div class="toggle-switch ${this.useDefaultApiKey ? 'on' : ''}" 
+                             @click=${this.handleToggleDefaultApiKey}
+                             ?disabled=${this.saving}>
+                            <div class="toggle-slider"></div>
+                        </div>
+                    </div>
+                ` : ''}
+                
                 ${Object.entries(this.providerConfig)
                     .filter(([id, config]) => !id.includes('-glass'))
                     .map(([id, config]) => {
@@ -1253,12 +1375,13 @@ export class SettingsView extends LitElement {
                         <div class="provider-key-group">
                             <label for="key-input-${id}">${config.name} API Key</label>
                             <input type="password" id="key-input-${id}"
-                                placeholder=${loggedIn ? "Using Pickle's Key" : `Enter ${config.name} API Key`} 
+                                placeholder=${usePickleApiKey ? "Using Pickle's Key" : `Enter ${config.name} API Key`} 
                                 .value=${this.apiKeys[id] || ''}
+                                ?disabled=${usePickleApiKey}
                             >
                             <div class="key-buttons">
-                               <button class="settings-button" @click=${() => this.handleSaveKey(id)} >Save</button>
-                               <button class="settings-button danger" @click=${() => this.handleClearKey(id)} }>Clear</button>
+                               <button class="settings-button" @click=${() => this.handleSaveKey(id)} ?disabled=${usePickleApiKey}>Save</button>
+                               <button class="settings-button danger" @click=${() => this.handleClearKey(id)} ?disabled=${usePickleApiKey}>Clear</button>
                             </div>
                         </div>
                         `;

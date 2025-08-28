@@ -112,4 +112,140 @@ data/*.db-wal
 # Build output
 out/
 dist/
-build/ 
+build/
+
+# Cache directories and files
+.cache/
+.temp/
+.tmp/
+*.tmp
+*.temp
+
+# Package manager files
+.npmrc
+.yarnrc
+.yarnrc.yml
+.pnpmrc
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS generated files
+Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Runtime and temporary files
+*.pid
+*.seed
+*.pid.lock
+.nyc_output/
+coverage/
+.coverage
+htmlcov/
+
+# Application specific
+*.db-journal
+*.db-shm  
+*.db-wal
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Glass/Pickle specific files
+pickleglass.db*
+runtime-config.json
+user-data/
+app-data/
+settings.json
+config.json
+
+# Electron user data
+userData/
+crashDumps/
+GPUCache/
+
+# API keys and sensitive data
+.secrets
+secrets/
+keys/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Electron specific
+app/
+app-builds/
+release-builds/
+releases/
+
+# Git modules (if any submodules are added)
+.gitmodules
+
+# SQLite database files (additional patterns)
+*.sqlite
+*.sqlite3
+*.db3
+
+# Log files (additional patterns)
+*.log.*
+logs/
+log/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# TypeScript/JavaScript build artifacts
+*.d.ts.map
+*.js.map
+*.tsbuildinfo
+
+# Additional ignore patterns for development
+.history/
+.vscode-test/
+*.vsix
+
+# Testing artifacts
+test-results/
+playwright-report/
+coverage/
+.nyc_output/
+
+# Documentation builds
+docs/_build/
+docs/dist/
+
+# Temporary files from operations
+.tmp*/
+temp*/
+*.orig
+
+# Platform specific
+*.dmp
+*.stackdump
+
+# Development databases and configs
+dev.db
+test.db
+local.db
+config.local.json
+settings.local.json 

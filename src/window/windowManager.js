@@ -31,9 +31,11 @@ let isContentProtectionOn = true;
 let lastVisibleWindows = new Set(['header']);
 let shouldMaintainFocus = true;
 let aggressiveFocusMode = true;
+let alwaysOnTopEnabled = true; // New: Global control flag for always on top
 
 let currentHeaderState = 'apikey';
 const windowPool = new Map();
+const alwaysOnTopIntervals = new Map(); // New: Track intervals for each window
 
 let settingsHideTimer = null;
 
@@ -42,7 +44,7 @@ let movementManager = null;
 
 // Platform-specific always-on-top logic function
 function applyAggressiveAlwaysOnTop(window) {
-    if (!window || window.isDestroyed()) return;
+    if (!window || window.isDestroyed() || !alwaysOnTopEnabled) return;
     if (process.platform === 'win32') {
         window.setAlwaysOnTop(true, 'screen-saver', 1);
     } else if (process.platform === 'darwin') {
@@ -51,9 +53,89 @@ function applyAggressiveAlwaysOnTop(window) {
         window.setAlwaysOnTop(true);
     }
 }
+
 function removeAggressiveAlwaysOnTop(window) {
     if (!window || window.isDestroyed()) return;
     window.setAlwaysOnTop(false);
+}
+
+// Enhanced always-on-top enforcement with event listeners and periodic checks
+function enforceAlwaysOnTop(window, windowName) {
+    if (!window || window.isDestroyed() || !alwaysOnTopEnabled) return;
+
+    // Set initial always on top with highest priority
+    applyAggressiveAlwaysOnTop(window);
+
+    // Re-enforce on blur (when window loses focus)
+    const blurHandler = () => {
+        if (alwaysOnTopEnabled && !window.isDestroyed()) {
+            setTimeout(() => {
+                applyAggressiveAlwaysOnTop(window);
+            }, 10); // Small delay to ensure it takes effect
+        }
+    };
+
+    // Prevent minimize and restore always on top
+    const minimizeHandler = () => {
+        if (alwaysOnTopEnabled && !window.isDestroyed()) {
+            window.restore();
+            applyAggressiveAlwaysOnTop(window);
+        }
+    };
+
+    // Re-enforce on focus
+    const focusHandler = () => {
+        if (alwaysOnTopEnabled && !window.isDestroyed()) {
+            applyAggressiveAlwaysOnTop(window);
+        }
+    };
+
+    // Handle window show events
+    const showHandler = () => {
+        if (alwaysOnTopEnabled && !window.isDestroyed()) {
+            applyAggressiveAlwaysOnTop(window);
+        }
+    };
+
+    // Prevent the window from being hidden behind others
+    const moveHandler = () => {
+        if (alwaysOnTopEnabled && !window.isDestroyed()) {
+            applyAggressiveAlwaysOnTop(window);
+        }
+    };
+
+    // Attach event listeners
+    window.on('blur', blurHandler);
+    window.on('minimize', minimizeHandler);
+    window.on('focus', focusHandler);
+    window.on('show', showHandler);
+    window.on('move', moveHandler);
+
+    // Periodic safety net - check every second to ensure always on top is maintained
+    const alwaysOnTopInterval = setInterval(() => {
+        if (window.isDestroyed()) {
+            clearInterval(alwaysOnTopInterval);
+            alwaysOnTopIntervals.delete(windowName);
+            return;
+        }
+        if (alwaysOnTopEnabled && !window.isAlwaysOnTop()) {
+            applyAggressiveAlwaysOnTop(window);
+        }
+    }, 1000); // Check every second
+
+    // Store interval reference for cleanup
+    alwaysOnTopIntervals.set(windowName, alwaysOnTopInterval);
+
+    // Clean up interval and listeners when window is closed
+    window.on('closed', () => {
+        clearInterval(alwaysOnTopInterval);
+        alwaysOnTopIntervals.delete(windowName);
+        window.removeListener('blur', blurHandler);
+        window.removeListener('minimize', minimizeHandler);
+        window.removeListener('focus', focusHandler);
+        window.removeListener('show', showHandler);
+        window.removeListener('move', moveHandler);
+    });
 }
 
 function updateChildWindowLayouts(animated = true) {
@@ -979,11 +1061,14 @@ const setupHeaderWindowEvents = (header) => {
  * Setup event handlers for feature windows
  */
 const setupFeatureWindowEvents = (window, windowName) => {
-    window.on('focus', () => {
-        if (aggressiveFocusMode) {
+    // Enhanced always-on-top enforcement
+    if (windowName === 'ask' || windowName === 'listen') {
+        enforceAlwaysOnTop(window, windowName);
+    } else if (aggressiveFocusMode) {
+        window.on('focus', () => {
             applyAggressiveAlwaysOnTop(window);
-        }
-    });
+        });
+    }
 
     window.webContents.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url);
@@ -1022,6 +1107,108 @@ const closeAllWindows = async () => {
 };
 
 /**
+ * Toggle always-on-top functionality for specific window or all feature windows
+ */
+const toggleAlwaysOnTop = (windowName = null) => {
+    if (windowName) {
+        const window = windowPool.get(windowName);
+        if (!window || window.isDestroyed()) return false;
+        
+        const currentState = window.isAlwaysOnTop();
+        if (currentState) {
+            removeAggressiveAlwaysOnTop(window);
+            // Clear the interval for this specific window
+            const interval = alwaysOnTopIntervals.get(windowName);
+            if (interval) {
+                clearInterval(interval);
+                alwaysOnTopIntervals.delete(windowName);
+            }
+        } else {
+            enforceAlwaysOnTop(window, windowName);
+        }
+        return !currentState;
+    } else {
+        // Toggle global setting and apply to all feature windows
+        alwaysOnTopEnabled = !alwaysOnTopEnabled;
+        
+        const featureWindows = ['ask', 'listen'];
+        featureWindows.forEach(name => {
+            const window = windowPool.get(name);
+            if (window && !window.isDestroyed()) {
+                if (alwaysOnTopEnabled) {
+                    enforceAlwaysOnTop(window, name);
+                } else {
+                    removeAggressiveAlwaysOnTop(window);
+                    const interval = alwaysOnTopIntervals.get(name);
+                    if (interval) {
+                        clearInterval(interval);
+                        alwaysOnTopIntervals.delete(name);
+                    }
+                }
+            }
+        });
+        
+        return alwaysOnTopEnabled;
+    }
+};
+
+/**
+ * Set always-on-top for specific window or globally
+ */
+const setAlwaysOnTop = (enabled, windowName = null) => {
+    if (windowName) {
+        const window = windowPool.get(windowName);
+        if (!window || window.isDestroyed()) return false;
+        
+        if (enabled) {
+            enforceAlwaysOnTop(window, windowName);
+        } else {
+            removeAggressiveAlwaysOnTop(window);
+            const interval = alwaysOnTopIntervals.get(windowName);
+            if (interval) {
+                clearInterval(interval);
+                alwaysOnTopIntervals.delete(windowName);
+            }
+        }
+        return enabled;
+    } else {
+        // Set global setting
+        alwaysOnTopEnabled = enabled;
+        
+        const featureWindows = ['ask', 'listen'];
+        featureWindows.forEach(name => {
+            const window = windowPool.get(name);
+            if (window && !window.isDestroyed()) {
+                if (enabled) {
+                    enforceAlwaysOnTop(window, name);
+                } else {
+                    removeAggressiveAlwaysOnTop(window);
+                    const interval = alwaysOnTopIntervals.get(name);
+                    if (interval) {
+                        clearInterval(interval);
+                        alwaysOnTopIntervals.delete(name);
+                    }
+                }
+            }
+        });
+        
+        return alwaysOnTopEnabled;
+    }
+};
+
+/**
+ * Check if always-on-top is enabled for specific window or globally
+ */
+const isAlwaysOnTop = (windowName = null) => {
+    if (windowName) {
+        const window = windowPool.get(windowName);
+        return window && !window.isDestroyed() ? window.isAlwaysOnTop() : false;
+    } else {
+        return alwaysOnTopEnabled;
+    }
+};
+
+/**
  * Get window manager instance for crash recovery
  */
 const windowManager = {
@@ -1049,6 +1236,10 @@ module.exports = {
     restoreWindowFocus,
     setAggressiveFocusMode,
     getAggressiveFocusMode,
+    // Enhanced always-on-top controls
+    toggleAlwaysOnTop,
+    setAlwaysOnTop,
+    isAlwaysOnTop,
     // Crash recovery functions
     recreateWindow,
     closeAllWindows,

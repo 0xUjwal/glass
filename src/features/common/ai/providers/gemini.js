@@ -66,9 +66,17 @@ async function createSTT({ apiKey, language = "en-US", callbacks = {}, ...config
 
 /**
  * Creates a Gemini LLM instance with proper text response handling
+ * @param {object} opts - Configuration options
+ * @param {string} opts.apiKey - Gemini API key
+ * @param {string} [opts.model='gemini-2.5-flash'] - Model name
+ * @param {number} [opts.temperature=0.7] - Temperature
+ * @param {number} [opts.maxTokens=8192] - Max tokens
+ * @returns {object} LLM instance
  */
 function createLLM({ apiKey, model = "gemini-2.5-flash", temperature = 0.7, maxTokens = 8192, ...config }) {
   const client = new GoogleGenerativeAI(apiKey)
+
+  console.log(`[Gemini Provider] Creating LLM with model: ${model}`);
 
   return {
     generateContent: async (parts) => {
@@ -206,7 +214,7 @@ function createStreamingLLM({ apiKey, model = "gemini-2.5-flash", temperature = 
 
   return {
     streamChat: async (messages) => {
-      console.log("[Gemini Provider] Starting streaming request")
+      console.log("[Gemini Provider] Starting streaming request with model:", model)
 
       let systemInstruction = ""
       const nonSystemMessages = []

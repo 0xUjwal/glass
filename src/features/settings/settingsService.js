@@ -366,7 +366,7 @@ async function removeApiKey() {
         }
         
         // Remove all API keys for all providers
-        const providers = ['openai', 'anthropic', 'gemini', 'ollama', 'whisper'];
+        const providers = ['openai', 'anthropic', 'gemini', 'ollama', 'whisper', 'openrouter'];
         for (const provider of providers) {
             await modelStateService.removeApiKey(provider);
         }
@@ -424,6 +424,26 @@ async function setAutoUpdateSetting(isEnabled) {
     }
 }
 
+async function getUseDefaultApiKey() {
+    try {
+        const result = await settingsRepository.getUseDefaultApiKey();
+        return result !== undefined ? result : true; // Default to true
+    } catch (error) {
+        console.error('[SettingsService] Error getting use default API key setting:', error);
+        return true; // Fallback to enabled
+    }
+}
+
+async function setUseDefaultApiKey(useDefault) {
+    try {
+        await settingsRepository.setUseDefaultApiKey(useDefault);
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting use default API key setting:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 function initialize() {
     // cleanup 
     windowNotificationManager.cleanup();
@@ -460,6 +480,8 @@ module.exports = {
     updateContentProtection,
     getAutoUpdateSetting,
     setAutoUpdateSetting,
+    getUseDefaultApiKey,
+    setUseDefaultApiKey,
     // Model settings facade
     getModelSettings,
     clearApiKey,

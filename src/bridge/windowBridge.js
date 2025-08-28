@@ -27,6 +27,11 @@ module.exports = {
     ipcMain.handle('move-header-to', (event, newX, newY) => windowManager.moveHeaderTo(newX, newY));
     ipcMain.handle('adjust-window-height', (event, { winName, height }) => windowManager.adjustWindowHeight(winName, height));
     ipcMain.handle('restore-window-focus', () => windowManager.restoreWindowFocus());
+
+    // Enhanced always-on-top controls
+    ipcMain.handle('window:toggle-always-on-top', (event, windowName) => windowManager.toggleAlwaysOnTop(windowName));
+    ipcMain.handle('window:set-always-on-top', (event, enabled, windowName) => windowManager.setAlwaysOnTop(enabled, windowName));
+    ipcMain.handle('window:is-always-on-top', (event, windowName) => windowManager.isAlwaysOnTop(windowName));
   },
 
   notifyFocusChange(win, isFocused) {

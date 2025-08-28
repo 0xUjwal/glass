@@ -22,7 +22,12 @@ const PROVIDERS = {
       name: 'OpenAI',
       handler: () => require("./providers/openai"),
       llmModels: [
+          { id: 'gpt-4o', name: 'GPT-4o' },
+          { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
           { id: 'gpt-4.1', name: 'GPT-4.1' },
+          { id: 'gpt-5', name: 'GPT-5' },
+          { id: 'o3', name: 'o3' },
+          { id: 'o3-mini', name: 'o3 Mini' },
       ],
       sttModels: [
           { id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe' }
@@ -33,7 +38,12 @@ const PROVIDERS = {
       name: 'OpenAI (Glass)',
       handler: () => require("./providers/openai"),
       llmModels: [
+          { id: 'gpt-4o-glass', name: 'GPT-4o (glass)' },
+          { id: 'gpt-4o-mini-glass', name: 'GPT-4o Mini (glass)' },
           { id: 'gpt-4.1-glass', name: 'GPT-4.1 (glass)' },
+          { id: 'gpt-5-glass', name: 'GPT-5 (glass)' },
+          { id: 'o3-glass', name: 'o3 (glass)' },
+          { id: 'o3-mini-glass', name: 'o3 Mini (glass)' },
       ],
       sttModels: [
           { id: 'gpt-4o-mini-transcribe-glass', name: 'GPT-4o Mini Transcribe (glass)' }
@@ -44,6 +54,13 @@ const PROVIDERS = {
       handler: () => require("./providers/gemini"),
       llmModels: [
           { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+          { id: 'gemini-2.5-flash-8b', name: 'Gemini 2.5 Flash 8B' },
+          { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+          { id: 'gemini-2.5-pro-002', name: 'Gemini 2.5 Pro (002)' },
+          { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash Experimental' },
+          { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+          { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+          { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B' },
       ],
       sttModels: [
           { id: 'gemini-live-2.5-flash-preview', name: 'Gemini Live 2.5 Flash' }
@@ -65,6 +82,32 @@ const PROVIDERS = {
         { id: 'nova-3', name: 'Nova-3 (General)' },
         ],
     },
+  'openrouter': {
+      name: 'OpenRouter',
+      handler: () => require("./providers/openrouter"),
+      llmModels: [
+          // Free models
+          { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Free)' },
+          { id: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini (Free)' },
+          { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)' },
+          { id: 'huggingfaceh4/zephyr-7b-beta:free', name: 'Zephyr 7B (Free)' },
+          { id: 'openchat/openchat-7b:free', name: 'OpenChat 7B (Free)' },
+          { id: 'gryphe/mythomist-7b:free', name: 'MythoMist 7B (Free)' },
+          { id: 'nousresearch/nous-capybara-7b:free', name: 'Nous Capybara 7B (Free)' },
+          // Popular paid models
+          { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (OpenRouter)' },
+          { id: 'openai/gpt-4o', name: 'GPT-4o (OpenRouter)' },
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo (OpenRouter)' },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (OpenRouter)' },
+          { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku (OpenRouter)' },
+          { id: 'google/gemini-pro', name: 'Gemini Pro (OpenRouter)' },
+          { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B (OpenRouter)' },
+          { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B (OpenRouter)' },
+          { id: 'mistralai/mistral-large', name: 'Mistral Large (OpenRouter)' },
+          { id: 'cohere/command-r-plus', name: 'Command R+ (OpenRouter)' },
+      ],
+      sttModels: [], // OpenRouter doesn't provide STT services
+  },
   'ollama': {
       name: 'Ollama (Local)',
       handler: () => require("./providers/ollama"),
@@ -158,7 +201,8 @@ function getProviderClass(providerId) {
         'gemini': 'GeminiProvider',
         'deepgram': 'DeepgramProvider',
         'ollama': 'OllamaProvider',
-        'whisper': 'WhisperProvider'
+        'whisper': 'WhisperProvider',
+        'openrouter': 'OpenRouterProvider'
     };
     
     const className = classNameMap[actualProviderId];

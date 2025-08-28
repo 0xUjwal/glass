@@ -137,6 +137,45 @@ async function setAutoUpdate(uid, isEnabled) {
 
 
 
+async function getUseDefaultApiKey(uid) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+            const data = userSnap.data();
+            if (typeof data.use_default_api_key !== 'undefined') {
+                console.log('Firebase: Use default API key setting found:', data.use_default_api_key);
+                return !!data.use_default_api_key;
+            } else {
+                // Field does not exist, just return default
+                return true;
+            }
+        } else {
+            // User doc does not exist, just return default
+            return true;
+        }
+    } catch (error) {
+        console.error('Firebase: Error getting use_default_api_key setting:', error);
+        return true; // fallback to enabled
+    }
+}
+
+async function setUseDefaultApiKey(uid, useDefault) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+            await updateDoc(userDocRef, { use_default_api_key: !!useDefault });
+        }
+        // If user doc does not exist, do nothing (no creation)
+        return { success: true };
+    } catch (error) {
+        console.error('Firebase: Error setting use default API key:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+
 module.exports = {
     getPresets,
     getPresetTemplates,
@@ -145,4 +184,6 @@ module.exports = {
     deletePreset,
     getAutoUpdate,
     setAutoUpdate,
+    getUseDefaultApiKey,
+    setUseDefaultApiKey,
 }; 

@@ -108,6 +108,11 @@ contextBridge.exposeInMainWorld('api', {
     sendHeaderAnimationFinished: (state) => ipcRenderer.send('header-animation-finished', state),
     restoreWindowFocus: () => ipcRenderer.invoke('restore-window-focus'),
 
+    // Enhanced always-on-top controls
+    toggleAlwaysOnTop: (windowName) => ipcRenderer.invoke('window:toggle-always-on-top', windowName),
+    setAlwaysOnTop: (enabled, windowName) => ipcRenderer.invoke('window:set-always-on-top', enabled, windowName),
+    isAlwaysOnTop: (windowName) => ipcRenderer.invoke('window:is-always-on-top', windowName),
+
     // Settings Window Management
     cancelHideSettingsWindow: () => ipcRenderer.send('cancel-hide-settings-window'),
     showSettingsWindow: () => ipcRenderer.send('show-settings-window'),
@@ -150,6 +155,11 @@ contextBridge.exposeInMainWorld('api', {
     // Window Management
     closeAskWindow: () => ipcRenderer.invoke('ask:closeAskWindow'),
     adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    
+    // Always-on-top controls for Ask window specifically
+    toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggle-always-on-top', 'ask'),
+    setAlwaysOnTop: (enabled) => ipcRenderer.invoke('window:set-always-on-top', enabled, 'ask'),
+    isAlwaysOnTop: () => ipcRenderer.invoke('window:is-always-on-top', 'ask'),
     
     // Message Handling
     sendMessage: (text) => ipcRenderer.invoke('ask:sendQuestionFromAsk', text),
@@ -238,6 +248,9 @@ contextBridge.exposeInMainWorld('api', {
     // Settings Management
     getPresets: () => ipcRenderer.invoke('settings:getPresets'),
     getAutoUpdate: () => ipcRenderer.invoke('settings:get-auto-update'),
+    setAutoUpdate: (isEnabled) => ipcRenderer.invoke('settings:set-auto-update', isEnabled),
+    getUseDefaultApiKey: () => ipcRenderer.invoke('settings:get-use-default-api-key'),
+    setUseDefaultApiKey: (useDefault) => ipcRenderer.invoke('settings:set-use-default-api-key', useDefault),
     setAutoUpdate: (isEnabled) => ipcRenderer.invoke('settings:set-auto-update', isEnabled),
     getContentProtectionStatus: () => ipcRenderer.invoke('get-content-protection-status'),
     toggleContentProtection: () => ipcRenderer.invoke('toggle-content-protection'),

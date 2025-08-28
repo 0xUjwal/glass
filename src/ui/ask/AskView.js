@@ -17,6 +17,8 @@ export class AskView extends LitElement {
         // Response navigation properties
         responses: { type: Array },
         currentResponseIndex: { type: Number },
+        // Always-on-top control
+        isAlwaysOnTop: { type: Boolean },
     };
 
     static styles = css`
@@ -110,7 +112,7 @@ export class AskView extends LitElement {
 
         .response-container pre {
             background: rgba(22, 27, 34, 0.8) !important;
-            border: 3px solid #0ca036ff !important; /* Pink border for testing */
+            border: 3px solid #7c897fff !important; /* Pink border for testing */
             border-radius: 8px !important;
             padding: 1rem !important;
             margin: 8px 0 !important;
@@ -118,6 +120,68 @@ export class AskView extends LitElement {
             white-space: pre-wrap !important;
             word-break: break-all !important;
             position: relative !important;
+        }
+
+        /* Code block copy button */
+        .code-copy-button {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255, 255, 255, 0.15) !important;
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            border-radius: 4px;
+            padding: 6px 8px;
+            cursor: pointer;
+            opacity: 1 !important; /* Always visible for testing */
+            transition: all 0.2s ease;
+            display: flex !important;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.9) !important;
+            z-index: 100 !important;
+            min-width: 60px;
+            justify-content: center;
+            font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .response-container pre:hover .code-copy-button {
+            opacity: 1;
+        }
+
+        .code-copy-button:hover {
+            background: rgba(255, 255, 255, 0.25) !important;
+            border-color: rgba(255, 255, 255, 0.5) !important;
+            color: rgba(255, 255, 255, 1) !important;
+            transform: translateY(-1px);
+        }
+
+        .code-copy-button.copied {
+            background: rgba(40, 167, 69, 0.4) !important;
+            border-color: rgba(40, 167, 69, 0.6) !important;
+            color: #fff !important;
+        }
+
+        .code-copy-button svg {
+            width: 12px;
+            height: 12px;
+            stroke: currentColor;
+            transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+
+        .code-copy-button .check-icon {
+            opacity: 0;
+            transform: scale(0.5);
+        }
+
+        .code-copy-button.copied .copy-icon {
+            opacity: 0;
+            transform: scale(0.5);
+        }
+
+        .code-copy-button.copied .check-icon {
+            opacity: 1;
+            transform: scale(1);
         }
 
         .response-container code {
@@ -393,6 +457,42 @@ export class AskView extends LitElement {
         .copy-button.copied .check-icon {
             opacity: 1;
             transform: translate(-50%, -50%) scale(1);
+        }
+
+        .always-on-top-button {
+            background: rgba(255, 255, 255, 0.07);
+            color: rgba(255, 255, 255, 0.8);
+            border: none;
+            padding: 4px;
+            border-radius: 20px;
+            outline: 1px rgba(255, 255, 255, 0.3) solid;
+            outline-offset: -1px;
+            backdrop-filter: blur(0.5px);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .always-on-top-button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 1);
+            transform: translateY(-1px);
+        }
+
+        .always-on-top-button.active {
+            background: rgba(59, 130, 246, 0.6);
+            color: white;
+            outline-color: rgba(59, 130, 246, 0.8);
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+        }
+
+        .always-on-top-button.active:hover {
+            background: rgba(59, 130, 246, 0.8);
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
         }
 
         .close-button {
@@ -861,6 +961,16 @@ export class AskView extends LitElement {
         // Response navigation properties
         this.responses = [];
         this.currentResponseIndex = -1;
+        this.isNavigatingHistory = false; // Flag to prevent state updates during navigation
+        
+        // Separate state for live vs navigated content
+        this.liveResponse = '';
+        this.liveQuestion = '';
+        this.displayResponse = '';
+        this.displayQuestion = '';
+
+        // Always on top state
+        this.isAlwaysOnTop = false;
 
         this.marked = null;
         this.hljs = null;
@@ -931,8 +1041,20 @@ export class AskView extends LitElement {
                 const prevLoading = this.isLoading;
                 const prevStreaming = this.isStreaming;
 
-                this.currentResponse = newState.currentResponse;
-                this.currentQuestion = newState.currentQuestion;
+                // Always update live state
+                this.liveResponse = newState.currentResponse;
+                this.liveQuestion = newState.currentQuestion;
+                
+                // Update display state only if not navigating
+                if (!this.isNavigatingHistory) {
+                    this.currentResponse = newState.currentResponse;
+                    this.currentQuestion = newState.currentQuestion;
+                    this.displayResponse = newState.currentResponse;
+                    this.displayQuestion = newState.currentQuestion;
+                } else {
+                    console.log('[AskView Navigation] Skipping display update due to history navigation');
+                }
+                
                 this.isLoading       = newState.isLoading;
                 this.isStreaming     = newState.isStreaming;
               
@@ -942,9 +1064,11 @@ export class AskView extends LitElement {
                 // When streaming ends and we have a completed response, add it to history
                 const wasActive = prevLoading || prevStreaming;
                 const nowIdle = !this.isStreaming && !this.isLoading;
-                if (wasActive && nowIdle && this.currentResponse && this.currentResponse.length > 0) {
+                if (wasActive && nowIdle && this.liveResponse && this.liveResponse.length > 0) {
                     console.log('[AskView Navigation] Response completed, adding to history');
-                    this.onResponseCompleted(this.currentResponse, this.currentQuestion);
+                    // Clear navigation flag to allow new response to be displayed
+                    this.isNavigatingHistory = false;
+                    this.onResponseCompleted(this.liveResponse, this.liveQuestion);
                 }
 
                 if (newState.showTextInput) {
@@ -963,6 +1087,9 @@ export class AskView extends LitElement {
             window.api.askView.onNavigateNextResponse(this._onNavigateNextResponse);
 
             console.log('AskView: IPC 이벤트 리스너 등록 완료');
+            
+            // Load always on top state
+            this.loadAlwaysOnTopState();
         }
     }
 
@@ -1071,6 +1198,32 @@ export class AskView extends LitElement {
         }
     }
 
+    // Always on top functionality
+    async loadAlwaysOnTopState() {
+        try {
+            if (window.api && window.api.askView.isAlwaysOnTop) {
+                this.isAlwaysOnTop = await window.api.askView.isAlwaysOnTop();
+                this.requestUpdate();
+            }
+        } catch (error) {
+            console.error('Failed to load always on top state:', error);
+            this.isAlwaysOnTop = false;
+        }
+    }
+
+    async toggleAlwaysOnTop() {
+        try {
+            if (window.api && window.api.askView.toggleAlwaysOnTop) {
+                const newState = await window.api.askView.toggleAlwaysOnTop();
+                this.isAlwaysOnTop = newState;
+                this.requestUpdate();
+                console.log(`Always on top toggled: ${newState}`);
+            }
+        } catch (error) {
+            console.error('Failed to toggle always on top:', error);
+        }
+    }
+
     handleEscKey(e) {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -1081,6 +1234,10 @@ export class AskView extends LitElement {
     clearResponseContent() {
         this.currentResponse = '';
         this.currentQuestion = '';
+        this.liveResponse = '';
+        this.liveQuestion = '';
+        this.displayResponse = '';
+        this.displayQuestion = '';
         this.isLoading = false;
         this.isStreaming = false;
         this.headerText = 'AI Response';
@@ -1089,6 +1246,7 @@ export class AskView extends LitElement {
         this.smdParser = null;
         this.smdContainer = null;
         this.lineCopyState = {}; // Reset line copy states
+        this.isNavigatingHistory = false; // Clear navigation flag
         // Clear all line copy timeouts
         Object.values(this.lineCopyTimeouts).forEach(timeout => clearTimeout(timeout));
         this.lineCopyTimeouts = {};
@@ -1237,12 +1395,19 @@ export class AskView extends LitElement {
                     block.setAttribute('data-highlighted', 'true');
                 }
             });
+            
+            // Add copy buttons to code blocks
+            this.addCopyButtonsToCodeBlocks(responseContainer);
         }
     }
 
     renderContent() {
         const responseContainer = this.shadowRoot.getElementById('responseContainer');
         if (!responseContainer) return;
+
+        console.log('[AskView Render] Rendering content, response length:', this.currentResponse.length);
+        console.log('[AskView Render] Navigation state:', this.isNavigatingHistory);
+        console.log('[AskView Render] Response preview:', this.currentResponse.substring(0, 100) + '...');
 
         // Check loading state
         if (this.isLoading) {
@@ -1268,6 +1433,12 @@ export class AskView extends LitElement {
 
         // After updating content, recalculate window height
         this.adjustWindowHeightThrottled();
+        
+        // Add copy buttons as a fallback (for cases where streaming doesn't trigger it)
+        setTimeout(() => {
+            console.log('[AskView] Adding copy buttons as fallback');
+            this.addCopyButtonsToCodeBlocks(responseContainer);
+        }, 100);
     }
 
     resetStreamingParser() {
@@ -1278,8 +1449,14 @@ export class AskView extends LitElement {
 
     renderStreamingMarkdown(responseContainer) {
         try {
+            console.log('[AskView Render] Starting renderStreamingMarkdown');
+            console.log('[AskView Render] Current response length:', this.currentResponse.length);
+            console.log('[AskView Render] Is navigating:', this.isNavigatingHistory);
+            
             // 파서가 없거나 컨테이너가 변경되었으면 새로 생성
-            if (!this.smdParser || this.smdContainer !== responseContainer) {
+            // 또는 네비게이션 중이면 새로 생성 (완전 재렌더링을 위해)
+            if (!this.smdParser || this.smdContainer !== responseContainer || this.isNavigatingHistory) {
+                console.log('[AskView Render] Creating new parser');
                 this.smdContainer = responseContainer;
                 this.smdContainer.innerHTML = '';
                 
@@ -1289,18 +1466,32 @@ export class AskView extends LitElement {
                 this.lastProcessedLength = 0;
             }
 
-            // 새로운 텍스트만 처리 (스트리밍 최적화)
+            // 네비게이션 중이면 전체 텍스트를 처리 (스트리밍 최적화 우회)
             const currentText = this.currentResponse;
-            const newText = currentText.slice(this.lastProcessedLength);
+            let newText;
+            
+            if (this.isNavigatingHistory) {
+                // 네비게이션 중: 전체 텍스트 처리
+                newText = currentText;
+                this.lastProcessedLength = 0;
+                console.log('[AskView Render] Navigation mode: processing full text');
+            } else {
+                // 일반 모드: 새로운 텍스트만 처리 (스트리밍 최적화)
+                newText = currentText.slice(this.lastProcessedLength);
+                console.log('[AskView Render] Streaming mode: processing new text chunk');
+            }
+            
+            console.log('[AskView Render] Processing text chunk, length:', newText.length);
             
             if (newText.length > 0) {
-                // 새로운 텍스트 청크를 파서에 전달
+                // 텍스트 청크를 파서에 전달
                 parser_write(this.smdParser, newText);
                 this.lastProcessedLength = currentText.length;
             }
 
             // 스트리밍이 완료되면 파서 종료
             if (!this.isStreaming && !this.isLoading) {
+                console.log('[AskView Render] Ending parser (not streaming)');
                 parser_end(this.smdParser);
             }
 
@@ -1335,6 +1526,9 @@ export class AskView extends LitElement {
                         block.setAttribute('data-highlighted', 'true');
                     }
                 });
+                
+                // Add copy buttons to code blocks
+                this.addCopyButtonsToCodeBlocks(responseContainer);
             } else {
                 console.log('[AskView] hljs library not available in streaming');
             }
@@ -1396,6 +1590,9 @@ export class AskView extends LitElement {
                             block.setAttribute('data-highlighted', 'true');
                         }
                     });
+                    
+                    // Add copy buttons to code blocks
+                    this.addCopyButtonsToCodeBlocks(responseContainer);
                 }
             } catch (error) {
                 console.error('Error in fallback rendering:', error);
@@ -1564,12 +1761,97 @@ export class AskView extends LitElement {
         }
     }
 
+    async handleCodeBlockCopy(codeBlock) {
+        const codeText = codeBlock.textContent;
+        
+        try {
+            await navigator.clipboard.writeText(codeText);
+            console.log('Code block copied to clipboard');
+
+            // Find the copy button for this code block
+            const copyButton = codeBlock.parentElement.querySelector('.code-copy-button');
+            if (copyButton) {
+                copyButton.classList.add('copied');
+                copyButton.innerHTML = `
+                    <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                    <span>Copied</span>
+                `;
+
+                // Reset button after 1.5 seconds
+                setTimeout(() => {
+                    copyButton.classList.remove('copied');
+                    copyButton.innerHTML = `
+                        <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                        </svg>
+                        <span>Copy</span>
+                    `;
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('Failed to copy code block:', err);
+        }
+    }
+
+    addCopyButtonsToCodeBlocks(container) {
+        console.log('[AskView] addCopyButtonsToCodeBlocks called');
+        const codeBlocks = container.querySelectorAll('pre code');
+        console.log('[AskView] Found', codeBlocks.length, 'code blocks');
+        
+        codeBlocks.forEach((codeBlock, index) => {
+            const preElement = codeBlock.parentElement;
+            console.log('[AskView] Processing code block', index, 'with parent:', preElement?.tagName);
+            
+            // Check if copy button already exists
+            if (preElement.querySelector('.code-copy-button')) {
+                console.log('[AskView] Copy button already exists for block', index);
+                return;
+            }
+
+            // Skip if this is an inline code block (not in a pre tag)
+            if (!preElement || preElement.tagName !== 'PRE') {
+                console.log('[AskView] Skipping non-PRE element for block', index);
+                return;
+            }
+
+            // Create copy button
+            const copyButton = document.createElement('button');
+            copyButton.className = 'code-copy-button';
+            copyButton.title = 'Copy code to clipboard';
+            copyButton.innerHTML = `
+                <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+                <span>Copy</span>
+            `;
+
+            // Add click handler
+            copyButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.handleCodeBlockCopy(codeBlock);
+            });
+
+            // Append to pre element
+            preElement.appendChild(copyButton);
+            
+            console.log('[AskView] Added copy button to code block', index);
+        });
+    }
+
     async handleSendText(e, overridingText = '') {
         const textInput = this.shadowRoot?.getElementById('textInput');
         const text = (overridingText || textInput?.value || '').trim();
         // if (!text) return;
 
         textInput.value = '';
+        
+        // Clear navigation flag when sending new message
+        this.isNavigatingHistory = false;
 
         if (window.api) {
             window.api.askView.sendMessage(text).catch(error => {
@@ -1639,11 +1921,13 @@ export class AskView extends LitElement {
         this.responses.push(responseObj);
         this.currentResponseIndex = this.responses.length - 1;
         
-        // Update current display if not streaming/loading
-        if (!this.isStreaming && !this.isLoading) {
-            this.currentResponse = response;
-            this.currentQuestion = question;
-        }
+        // Update current display to show the new response
+        this.currentResponse = response;
+        this.currentQuestion = question;
+        this.displayResponse = response;
+        this.displayQuestion = question;
+        
+        console.log(`[AskView Navigation] Added response to history. Total responses: ${this.responses.length}`);
         
         this.updateNavigationButtons();
         this.requestUpdate();
@@ -1680,12 +1964,36 @@ export class AskView extends LitElement {
             return;
         }
 
+        // Set navigation flag to prevent state updates from overriding
+        this.isNavigatingHistory = true;
+        console.log(`[AskView Navigation] Setting navigation flag for index ${index}`);
+
         const response = this.responses[index];
+        // Update both current and display state for navigation
         this.currentResponse = response.content;
         this.currentQuestion = response.question;
+        this.displayResponse = response.content;
+        this.displayQuestion = response.question;
         this.currentResponseIndex = index;
         
+        // Reset streaming parser to force complete re-render
+        this.resetStreamingParser();
+        
         console.log(`[AskView Navigation] Loaded response ${index + 1}/${this.responses.length}`);
+        console.log('[AskView Navigation] Response preview:', response.content.substring(0, 100) + '...');
+        
+        // Re-render the content after loading the response
+        this.updateComplete.then(() => {
+            this.renderContent();
+            // Clear navigation flag after rendering is complete
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    this.isNavigatingHistory = false;
+                    console.log('[AskView Navigation] Cleared navigation flag');
+                }, 300);
+            });
+        });
+        
         this.requestUpdate();
     }
 
@@ -1724,6 +2032,15 @@ export class AskView extends LitElement {
                                     stroke-width="2.5"
                                 >
                                     <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                            </button>
+                            <button class="always-on-top-button ${this.isAlwaysOnTop ? 'active' : ''}" @click=${this.toggleAlwaysOnTop} title="${this.isAlwaysOnTop ? 'Disable Always On Top' : 'Enable Always On Top'}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                                    <path d="M21 12c0-1.66-4-3-9-3s-9 1.34-9 3" />
+                                    <path d="M12 2v7" />
+                                    <path d="M12 15v7" />
+                                    <path d="M8 5l4-3 4 3" />
                                 </svg>
                             </button>
                             <button class="close-button" @click=${this.handleCloseAskWindow}>
@@ -1824,6 +2141,7 @@ export class AskView extends LitElement {
     // Navigation methods - Now fully implemented
     navigatePreviousResponse() {
         console.log('[AskView Navigation] Attempting to navigate to previous response');
+        console.log(`[AskView Navigation] Current index: ${this.currentResponseIndex}, Total responses: ${this.responses.length}`);
         
         if (!this.canNavigatePrevious()) {
             console.log('[AskView Navigation] Cannot navigate to previous response');
@@ -1838,6 +2156,7 @@ export class AskView extends LitElement {
 
     navigateNextResponse() {
         console.log('[AskView Navigation] Attempting to navigate to next response');
+        console.log(`[AskView Navigation] Current index: ${this.currentResponseIndex}, Total responses: ${this.responses.length}`);
         
         if (!this.canNavigateNext()) {
             console.log('[AskView Navigation] Cannot navigate to next response');
@@ -1848,6 +2167,18 @@ export class AskView extends LitElement {
         console.log(`[AskView Navigation] Navigating from ${this.currentResponseIndex} to ${newIndex}`);
         
         this.loadResponseAtIndex(newIndex);
+    }
+
+    // Force clear navigation state - emergency method
+    forceExitNavigationMode() {
+        console.log('[AskView Navigation] Force exiting navigation mode');
+        this.isNavigatingHistory = false;
+        this.currentResponse = this.liveResponse;
+        this.currentQuestion = this.liveQuestion;
+        this.displayResponse = this.liveResponse;
+        this.displayQuestion = this.liveQuestion;
+        this.renderContent();
+        this.requestUpdate();
     }
 }
 
